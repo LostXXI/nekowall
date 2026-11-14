@@ -1,0 +1,16 @@
+[package]
+name = "nekowall-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nekowall"
+path = "src/main.rs"
+
+[dependencies]
+nekowall-backend = { path = "../nekowall-backend" }
+nekowall-library = { path = "../nekowall-library" }
+nekowall-core = { path = "../nekowall-core" }
+nekowall-plasma = { path = "../nekowall-plasma" }
+serde_json = "1"

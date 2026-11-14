@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nekowall-backend",
+    "crates/nekowall-library",
+    "crates/nekowall-plasma",
+    "crates/nekowall-core",
+    "crates/nekowall-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later" # PROVISIONAL: decidir antes de reutilizar código externo
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = true

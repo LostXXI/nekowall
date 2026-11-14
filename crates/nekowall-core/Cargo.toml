@@ -1,0 +1,9 @@
+[package]
+name = "nekowall-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nekowall-backend = { path = "../nekowall-backend" }
+nekowall-library = { path = "../nekowall-library" }

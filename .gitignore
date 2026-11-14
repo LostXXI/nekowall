@@ -1,0 +1,40 @@
+# ── Compilación ─────────────────────────────────────────────
+# Rust (cargo)
+target/
+# Interfaz Qt (cmake -S app -B app/build) y otras carpetas de compilación
+app/build/
+build/
+build-*/
+compile_commands.json
+CMakeLists.txt.user*
+CMakeUserPresets.json
+
+# ── Datos personales del usuario (nunca al repositorio) ─────
+# Biblioteca SQLite (por defecto vive en ~/.local/share/nekowall/, pero NEKOWALL_DB puede apuntar aquí)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak*
+# Ilustración del selector, su versión «horneada» e iconos personales
+mascota.*
+hud-art-*.png
+# Conversiones de vídeo a medio hacer
+.*.part.mp4
+
+# ── Editores e IDE ──────────────────────────────────────────
+.vscode/
+.idea/
+.qtcreator/
+.kdev4/
+*.kdev4
+*.swp
+*.swo
+*~
+.directory
+
+# ── Herramientas locales ────────────────────────────────────
+.claude/
+*.tar.gz
+core
+core.*
