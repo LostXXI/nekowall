@@ -1,115 +1,201 @@
-# NekoWall (prototipo, Fases 1 y parte de la 2)
+# NekoWall
 
-Implementa del plan: núcleo, contrato `WallpaperBackend`, biblioteca SQLite,
-backend Plasma para estáticos y CLI.
+Gestor de fondos de pantalla **estáticos y animados** para **KDE Plasma 6 (Wayland)**, pensado para
+**Void Linux**. Incluye una biblioteca con miniaturas y un **selector rápido** a pantalla completa
+(estilo «Dark Aero») que se abre con un atajo de teclado desde cualquier lugar.
 
-## Compilar y probar
-    cargo test
-    cargo build --release      # binario: target/release/nekowall
+> Estado: versión 0.1 (temprana). Funciona en el equipo del autor (Void Linux, Plasma 6.7.5, Wayland).
+> Por ahora **solo KDE Plasma en Wayland**: no hay soporte para X11 ni para otros escritorios.
 
-Requiere Rust ≥ 1.75. Dependencia externa: solo `rusqlite` (SQLite embebido).
-No requiere systemd, X11 ni privilegios de administrador.
+## Funciones
 
-## Estado honesto
-| Pieza | Estado |
+- **Selector rápido** (`Meta+Alt+W`): vídeos en un carrusel horizontal (←/→) e imágenes en uno vertical (↑/↓);
+  Enter aplica, F marca favorito, Esc cierra. Fondo de cristal desenfocado e ilustración opcional.
+- **Biblioteca**: búsqueda, filtros (animados / estáticos / favoritos), orden, miniaturas en caché,
+  importar archivos o carpetas (también arrastrando), quitar con «deshacer». Los archivos **no se copian**
+  ni se modifican: se indexan donde están.
+- **Vídeos grandes**: al importar un vídeo mayor que tu pantalla (p. ej. 4K) ofrece crear una copia a tu
+  resolución (30 o 60 fps) junto al original; también desde clic derecho → «Optimizar para mi pantalla…».
+- **Ahorro**: pausa del vídeo con ventanas maximizadas / activas / visibles y con batería baja.
+- **CLI** (`nekowall`) para usar todo desde la terminal o desde scripts.
+- Cerrado no ocupa memoria: no deja procesos en segundo plano.
+
+## Requisitos
+
+| Qué | Paquete(s) de Void |
 | --- | --- |
-| Modelos, contrato de backend, errores | Hecho, con tests |
-| Biblioteca SQLite (importar, buscar, favoritos, faltantes) | Hecho, con tests |
-| Servicio (apply, next/previous, restore) | Hecho, con tests (backend simulado) |
-| Backend Plasma estático | Validado en Plasma 6.7.5 (`apply`, `restore`, `next`, `previous`, `status`) |
-| Vídeo en Plasma (plugin Smart Video Wallpaper Reborn) | Escrito. El mecanismo (script por D-Bus) se validó a mano; **el código de NekoWall aún no se ha probado en el equipo** |
-| `current()` con vídeo activo | Escrito (formato copiado de una configuración real); sin probar en el equipo |
-| Miniaturas (`nekowall thumbs`, ffmpeg → `~/.cache/nekowall/thumbs`) | Hecho; 19 generadas en 2,9 s en el equipo |
-| `list --json`, `status --json` | Hecho |
-| HUD cinemático (`app/`, `nekowall-gui`) | Hecho y visto en el equipo (captura); navegación por teclado aún sin probar a mano |
-| Vídeos más grandes que la pantalla: diálogo al importar (convertir a 1080p 30/60 fps o tal cual), «Optimizar para mi pantalla…», copia «nombre (1080p30).mp4» junto al original | Hecho; probado con copias y biblioteca de prueba (`NEKOWALL_DB`), sin clics reales |
-| Pausa del vídeo (Ajustes → Vídeo: pantalla completa / ventana activa / cualquier ventana / nunca; batería) | Hecho; escritura verificada en Plasma con los mismos valores |
-| Ventana principal (biblioteca, filtros, búsqueda, orden, favoritos, importar, quitar con deshacer, ajustes) | Hecho y visto en el equipo (capturas); interacción aún sin probar a mano |
+| Compilar el núcleo (Rust) | `rust` `cargo` `gcc` |
+| Compilar la interfaz (Qt 6 ≥ 6.5) | `cmake` `make` `qt6-base-devel` `qt6-declarative-devel` |
+| Desenfoque de KWin (opcional, recomendado) | `kf6-kwindowsystem-devel` |
+| Ejecutar | `qt6-wayland` `layer-shell-qt` `kf6-qqc2-desktop-style` `ffmpeg6` `glib` `plasma-workspace` |
+| Fondos de **vídeo** | `qt6-multimedia` + el plugin **Smart Video Wallpaper Reborn** (ver abajo) |
 
-## Validar en tu equipo (Void + Plasma 6.7.5)
-    command -v plasma-apply-wallpaperimage   # ¿existe en tu instalación?
-    nekowall import ~/Pictures/Wallpapers
-    nekowall apply <id>                      # ¿cambia el fondo?
-    nekowall apply <otro-id>; nekowall restore
-    nekowall status                          # ¿detecta el fondo actual?
+Instalar todo de una vez:
 
-Puntos a verificar en el equipo real:
-1. Que `plasma-apply-wallpaperimage` exista y funcione bajo KWin Wayland.
-2. Que `~/.config/plasma-org.kde.plasma.desktop-appletsrc` refleje el fondo
-   actual (`status`); Plasma puede escribirlo con retraso. Si no, hay que
-   consultar por D-Bus.
-3. Plugin de vídeo para Plasma 6 (Fase 4).
+```bash
+sudo xbps-install -S rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
+    kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style \
+    ffmpeg6 glib qt6-multimedia
+```
 
-## Decisiones respecto al plan
-- Los modelos viven en `nekowall-backend` (no hay `nekowall-core` de modelos);
-  `nekowall-core` contiene la orquestación (`Service`).
-- Se añadió `name()` al trait `WallpaperBackend`.
-- CLI con parseo manual (sin clap) para minimizar dependencias.
-- Puente GUI ↔ núcleo: la GUI (Qt/QML, C++) llama a la CLI con `--json` mediante QProcess asíncrono,
-  en lugar de CXX-Qt. Compila en segundos, sin crates nuevos, y la UI no se bloquea. Se puede migrar
-  a CXX-Qt sin tocar el QML si el coste de lanzar procesos llega a notarse.
-- Licencia provisional GPL-3.0-or-later; decídela antes de reutilizar código.
+(`plasma-workspace` ya viene con KDE Plasma.)
 
-## Vídeo en Plasma (lo aprendido en el equipo real)
-- Plugin: `luisbocanegra.smart.video.wallpaper.reborn` (v2.17.0 compilado desde fuente en Void).
-- Se activa enviando un script a `org.kde.plasmashell /PlasmaShell evaluateScript` con `gdbus`.
-  Si `plasmashell` está colgado, `/PlasmaShell` no existe y NekoWall informa
-  «plasmashell no responde por D-Bus» en lugar de un error vacío.
-- Plasma conserva la configuración de plugins inactivos (p. ej. `Image=`), por eso
-  `current()` se guía por `wallpaperplugin=` y no por la última clave vista.
+### Plugin de vídeo (solo para fondos animados)
 
-## Pruebas pendientes en el equipo
-    nekowall apply <id-de-un-.mp4>    # ¿cambia a vídeo?
-    nekowall status                   # ¿muestra el vídeo y vídeo=true?
-    nekowall apply <id-de-un-.png>    # ¿vuelve a imagen y se detiene el vídeo?
-    nekowall next / previous          # ahora recorre también los vídeos
+NekoWall aplica los vídeos con el plugin de fondo **Smart Video Wallpaper Reborn**
+(`luisbocanegra.smart.video.wallpaper.reborn`), que no está en los repositorios de Void. La forma más
+sencilla de instalarlo es desde el propio Plasma:
 
-## Interfaz gráfica (app/)
-    cargo build --release                      # la GUI usa target/release/nekowall
-    cmake -S app -B app/build -DCMAKE_BUILD_TYPE=Release && cmake --build app/build
-    app/build/nekowall-gui                     # ventana principal
-    app/build/nekowall-gui --hud               # selector rápido (HUD)
+1. Clic derecho en el escritorio → **Configurar el escritorio y el fondo de pantalla…**
+2. **Obtener nuevos complementos…** → busca **Smart Video Wallpaper Reborn** → **Instalar**.
 
-HUD: ←/→ o rueda = navegar · Enter o clic en la tarjeta central = aplicar · F = favorito ·
-Esc o clic fuera = cerrar. Usa `org.kde.layershell` (paquete `layer-shell-qt`) para dibujarse
-encima de todo en Wayland. Si en KDE la velocidad de animación está en 0 (`kdeglobals`
-`AnimationDurationFactor=0`) o `NEKOWALL_REDUCED_MOTION=1`, quita inclinación y animaciones.
-`NEKOWALL_TIMING=1` mide el primer fotograma (medido: HUD ~262 ms, ventana principal ~584 ms desde `main`;
-la meta del HUD es < 150 ms).
+Sin el plugin, NekoWall funciona igual con imágenes y avisa de que el vídeo no está disponible.
 
-Ventana principal: Ctrl+F buscar · Ctrl+O añadir archivos · Ctrl+Mayús+O añadir carpeta · Ctrl+H HUD ·
-F5 recargar · Ctrl+Z deshacer «quitar» · en la rejilla: Enter aplicar, F favorito, Supr quitar.
-También se puede arrastrar archivos o carpetas a la ventana.
+## Compilar
 
-Lanzador: `~/.local/share/applications/nekowall.desktop` (menú = ventana principal; acción
-«Selector rápido» = `--hud` con Meta+Alt+W, registrada en kglobalaccel).
+```bash
+git clone https://github.com/LostXXI/nekowall.git
+cd nekowall
 
-## Rendimiento (medido el 2026-11-14 en el T480s)
-- NekoWall cerrado: 0 MiB. HUD ~65 MiB, ventana ~77 MiB (PSS). Cada llamada a la CLI: 7-8 ms.
-- Vídeo en Plasma: plasmashell 16-23 % de CPU reproduciendo, 3,5 % en pausa (ventana a pantalla completa).
-  Decodificar por VA-API cuesta ~3 %: el resto es la tubería de Qt Multimedia del plugin.
-- Conversión 4K→1080p (14 s de vídeo): libx264 veryfast 9,6 s y 3,7 MB (SSIM 0,987). Por VA-API
-  `scale_vaapi` falla al redimensionar (iHD + ffmpeg 6.1) y el camino híbrido es más lento (14-15 s, 7-12 MB),
-  así que se convierte con el procesador a prioridad baja (`nice -n 10`).
+# 1) Núcleo y CLI (Rust) → target/release/nekowall
+cargo build --release
 
-CLI nueva: `nekowall probe <ruta>...`, `nekowall optimize <id|ruta> [--height N] [--fps N] [--replace-in-library]`,
-`nekowall video-settings [--pause-mode 0-3] [--battery on|off] [--battery-level N] [--json]`,
-`nekowall relocate <carpeta-vieja> <carpeta-nueva>` (tras mover una carpeta: rutas, favoritos y miniaturas).
-GUI: `nekowall-gui --import <ruta>...`. Ajustes de la GUI en `~/.config/nekowall/nekowall.conf`.
+# 2) Interfaz gráfica (Qt/QML) → app/build/nekowall-gui
+cmake -S app -B app/build -DCMAKE_BUILD_TYPE=Release
+cmake --build app/build -j"$(nproc)"
+```
 
-## Estilo del HUD (Dark Aero, 2026-11-14)
-Ventana transparente con desenfoque de KWin (`KWindowEffects::enableBlurBehind`, opcional vía KF6WindowSystem),
-paneles de cristal con brillo, acento turquesa Miku (#39C5BB), halo de neón (`RectangularShadow`) en la tarjeta
-activa, sin reflejos. Ilustración opcional a la derecha con máscara alfa (`Qt5Compat.GraphicalEffects.OpacityMask`):
-la elige el usuario en Ajustes y se copia a `~/.local/share/nekowall/mascota.*` (no se distribuye con el programa).
-Icono: tema de usuario `~/.local/share/icons/hicolor/*/apps/nekowall.png` (tampoco está en el repositorio).
+Comprobar que todo funciona (opcional):
 
-## Re-evaluación de rendimiento (2026-11-14, en batería, pantalla encendida)
-- Fondo: estática 0,6 % CPU / 361 MiB plasmashell · Cherry Pop 4K 25,8 % / 497 MiB · 1080p30 22,0 % / 397 MiB ·
-  1080p30 en pausa (ventana activa) 3,1 %. Consumo del portátil 9,4-10,1 W en todos (dentro del ruido).
-- HUD Dark Aero optimizado: 90 → 61-63 MiB PSS con el mismo aspecto. La ilustración se «hornea» una vez
-  (`Bridge::bakedMascot`, ~/.cache/nekowall/hud-art-*.png, recortada y fundida); el fondo de la selección es la
-  miniatura a 48 px ampliada (sin MultiEffect); las tarjetas decodifican a 420 px. Ya no usa Qt5Compat.
-- Probado sin ganancia útil: estilo Fusion (-2 MiB), MALLOC_ARENA_MAX=2 y QSG_RENDER_LOOP=basic (-1 a -3 MiB).
-- Tiempo de apertura con el gobernador `powersave` (batería): 280-800 ms, muy variable; la ventana principal, sin
-  cambios, también subió. Pendiente medir enchufado para comparar con los ~200 ms de la noche anterior.
+```bash
+cargo test
+```
+
+Probarlo sin instalar:
+
+```bash
+./target/release/nekowall import ~/Pictures/Wallpapers   # indexa tu carpeta de fondos
+./app/build/nekowall-gui                                  # ventana principal
+./app/build/nekowall-gui --hud                            # selector rápido
+```
+
+## Instalar (para tu usuario, sin `sudo`)
+
+Copia los dos programas **a la misma carpeta** (la interfaz busca `nekowall` a su lado) y crea el acceso
+del menú con el atajo del selector:
+
+```bash
+mkdir -p ~/.local/bin ~/.local/share/applications
+install -m755 target/release/nekowall app/build/nekowall-gui ~/.local/bin/
+
+cat > ~/.local/share/applications/nekowall.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=NekoWall
+GenericName=Gestor de fondos de pantalla
+Comment=Cambia fondos de pantalla estáticos y animados
+Exec=$HOME/.local/bin/nekowall-gui
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Utility;Settings;DesktopSettings;Qt;KDE;
+Actions=hud;
+
+[Desktop Action hud]
+Name=Selector rápido
+Exec=$HOME/.local/bin/nekowall-gui --hud
+X-KDE-Shortcuts=Meta+Alt+W
+EOF
+
+kbuildsycoca6
+```
+
+**Cierra sesión y vuelve a entrar**: KDE registra el atajo **Meta+Alt+W** (tecla Windows + Alt + W) al
+iniciar la sesión. Si quieres otra combinación: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
+
+Para desinstalar: borra `~/.local/bin/nekowall`, `~/.local/bin/nekowall-gui` y
+`~/.local/share/applications/nekowall.desktop`. Tus datos están en `~/.local/share/nekowall/`,
+`~/.cache/nekowall/` y `~/.config/nekowall/` (bórralos si no los quieres).
+
+## Primer uso
+
+1. Abre **NekoWall** desde el menú → **Añadir carpeta…** (o arrastra archivos a la ventana).
+2. Pulsa **Aplicar** en cualquier fondo, o abre el selector con **Meta+Alt+W**.
+3. En **Ajustes** puedes elegir cuándo se pausa el vídeo, qué hacer con vídeos grandes y la
+   ilustración del selector.
+
+Atajos de la ventana: Ctrl+F buscar · Ctrl+O añadir archivos · Ctrl+Mayús+O añadir carpeta ·
+Ctrl+H selector · F5 recargar · Ctrl+Z deshacer «quitar» · en la rejilla: Enter aplicar, F favorito,
+Supr quitar.
+
+## Uso desde la terminal
+
+```text
+nekowall import <ruta>...            Indexa archivos o carpetas (sin copiar)
+nekowall list [--video|--static] [--favorites] [--search TEXTO] [--json]
+nekowall apply <id|ruta>             Aplica un fondo
+nekowall next | previous | restore   Siguiente / anterior / volver al fondo anterior
+nekowall favorite <id> [--off]       Marca o desmarca favorito
+nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
+nekowall status [--json]             Escritorio, capacidades y fondo actual
+nekowall thumbs [--force]            Genera las miniaturas que falten
+nekowall optimize <id|ruta> [--height 1080] [--fps 30] [--replace-in-library]
+nekowall video-settings [--pause-mode 0-3] [--battery on|off] [--battery-level N]
+nekowall relocate <carpeta-vieja> <carpeta-nueva>   Tras mover una carpeta de fondos
+nekowall help
+```
+
+Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekowall` para la interfaz),
+`NEKOWALL_REDUCED_MOTION=1` (sin animaciones; también se respeta «Velocidad de animación = 0» de KDE).
+
+## Limitaciones conocidas
+
+- Solo **KDE Plasma 6 en Wayland**. X11, GNOME, Sway/Hyprland, etc. no están soportados todavía.
+- Un solo monitor: el mismo fondo se aplica a todos los escritorios.
+- Los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
+
+## Licencia
+
+Pendiente de definir (el `Cargo.toml` indica provisionalmente GPL-3.0-or-later).
+
+---
+
+## Notas de desarrollo
+
+### Arquitectura
+- `crates/nekowall-backend`: modelos (`Wallpaper`, `WallpaperKind`) y el contrato `WallpaperBackend`.
+- `crates/nekowall-library`: biblioteca SQLite (`rusqlite` con SQLite embebido).
+- `crates/nekowall-core`: orquestación (`Service`: aplicar, siguiente/anterior, restaurar).
+- `crates/nekowall-plasma`: backend de KDE Plasma (`plasma-apply-wallpaperimage` para imágenes; script por
+  D-Bus a `org.kde.plasmashell /PlasmaShell evaluateScript` para el plugin de vídeo).
+- `crates/nekowall-cli`: la CLI `nekowall` (y `media.rs`: ffprobe/ffmpeg).
+- `app/`: interfaz Qt 6/QML en C++. `Bridge` llama a la CLI con `--json` mediante `QProcess` asíncrono
+  (en lugar de CXX-Qt): compila en segundos y la interfaz nunca se bloquea.
+
+### Decisiones
+- La CLI se analiza a mano (sin `clap`) para minimizar dependencias.
+- Plasma conserva la configuración de plugins inactivos (p. ej. `Image=`), por eso `current()` se guía por
+  `wallpaperplugin=` y no por la última clave vista.
+- Si `plasmashell` está colgado, `/PlasmaShell` no existe y NekoWall informa «plasmashell no responde por D-Bus».
+- Conversión de vídeo con `libx264` a prioridad baja (`nice -n 10`): en Intel UHD 620 + iHD + ffmpeg 6.1,
+  `scale_vaapi` falla al redimensionar y el camino híbrido VA-API fue más lento y con archivos más grandes.
+- Un atajo de servicio registrado en caliente por D-Bus en kglobalaccel no lanza el programa hasta volver a
+  iniciar sesión; por eso el `.desktop` lleva `X-KDE-Shortcuts`.
+
+### Estilo del selector (Dark Aero)
+Ventana transparente con desenfoque de KWin (`KWindowEffects::enableBlurBehind`, opcional vía
+KF6WindowSystem), paneles de cristal con brillo, acento turquesa (#39C5BB), halo (`RectangularShadow`) en la
+tarjeta activa. La ilustración opcional la elige el usuario en Ajustes; se copia a
+`~/.local/share/nekowall/mascota.*` y se «hornea» una vez (recortada y fundida) en
+`~/.cache/nekowall/hud-art-*.png`, de modo que el selector dibuja una sola imagen sin efectos.
+
+### Rendimiento (Intel i7-8550U, UHD 620, 1920×1080)
+- NekoWall cerrado: 0 MiB. Selector: ~62 MiB (PSS) y ~190 ms hasta el primer fotograma (enchufado).
+  Ventana principal: ~73 MiB, sin crecimiento apreciable tras horas abierta. Cada llamada a la CLI: 7-8 ms.
+- Optimización del selector: 87,5 → 61,5 MiB y 211 → 198 ms (medianas de 8 aperturas alternadas) al hornear
+  la ilustración, sustituir el `MultiEffect` del fondo por una miniatura de 48 px ampliada y decodificar las
+  tarjetas a 420 px.
+- Fondo de vídeo (plasmashell): imagen estática 0,6 % CPU / 361 MiB · vídeo 4K 25,8 % / 497 MiB ·
+  el mismo vídeo a 1080p30 22,0 % / 397 MiB · en pausa 3,1 %. Decodificar por VA-API cuesta ~3 %; el resto
+  es la tubería de Qt Multimedia del plugin.
+- Probado sin ganancia útil: estilo Fusion (−2 MiB), `MALLOC_ARENA_MAX=2`, `QSG_RENDER_LOOP=basic`.
+- En batería (gobernador `powersave`) los tiempos de apertura varían mucho (280-800 ms).
