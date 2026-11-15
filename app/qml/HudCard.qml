@@ -105,7 +105,7 @@ Item {
             visible: card.selected
             Badge { text: card.modelData.kind === "video" ? "▶ Vídeo" : "Imagen" }
             Badge { text: "★ Favorito"; visible: card.modelData.favorite }
-            Badge { text: "✓ Actual"; visible: card.isCurrentWallpaper; tint: Qt.darker(card.accent, 1.8) }
+            Badge { text: "✓ Actual"; visible: card.isCurrentWallpaper; lit: true; litColor: card.accent }
         }
 
         Rectangle {                      // velo de profundidad (tarjetas laterales)
@@ -130,19 +130,21 @@ Item {
         }
     }
 
-    component Badge: Rectangle {
+    component Badge: Skeuo {                 // etiqueta esqueumórfica (ver Skeuo.qml)
+        id: badge
         property alias text: label.text
-        property color tint: Qt.rgba(0, 0, 0, 0.65)
+        base: "#2c2c2c"
         height: label.implicitHeight + 8
-        width: label.implicitWidth + 16
+        width: label.implicitWidth + 18
         radius: height / 2
-        color: tint
         Text {
             id: label
             anchors.centerIn: parent
-            color: "white"
+            color: badge.textColor
+            style: Text.Raised
+            styleColor: badge.textShadow
             font.pixelSize: 13
-            font.weight: Font.DemiBold
+            font.weight: Font.Bold
         }
     }
 }

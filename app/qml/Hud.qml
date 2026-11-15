@@ -355,20 +355,23 @@ Window {
                     { key: "video", label: "▶  Vídeos", hint: "← →", count: root.videos.length },
                     { key: "image", label: "▣  Imágenes", hint: "↑ ↓", count: root.images.length }
                 ]
-                Glass {
+                Skeuo {
+                    id: pillPlate
                     readonly property bool on: root.active === modelData.key
                     height: 40
                     width: pill.implicitWidth + 32
                     radius: height / 2
                     visible: modelData.count > 0
-                    color: on ? Qt.rgba(0.22, 0.77, 0.73, 0.85) : Qt.rgba(0.04, 0.07, 0.10, 0.62)
-                    Behavior on color { enabled: !root.reduced; ColorAnimation { duration: 150 } }
+                    lit: on
+                    litColor: root.accent
                     Text {
                         id: pill
                         anchors.centerIn: parent
-                        color: parent.on ? "#03110f" : "#d6dde4"
+                        color: pillPlate.textColor
+                        style: Text.Raised
+                        styleColor: pillPlate.textShadow
                         font.pixelSize: 16
-                        font.weight: parent.on ? Font.Bold : Font.Normal
+                        font.weight: pillPlate.on ? Font.Bold : Font.DemiBold
                         text: modelData.label + "  " + modelData.count + "   " + modelData.hint
                     }
                     MouseArea { anchors.fill: parent; onClicked: root.setActive(modelData.key) }
@@ -470,13 +473,17 @@ Window {
                         ["F", "Favorito"], ["Esc", "Cerrar"]]
                 Row {
                     spacing: 8
-                    Glass {
+                    Skeuo {                  // tecla física (como las teclas de atajo de SkeuoCord)
+                        id: keyPlate
                         height: 26
-                        width: Math.max(32, keyLabel.implicitWidth + 16)
-                        radius: 6
-                        Text { id: keyLabel; anchors.centerIn: parent; text: modelData[0]; color: "white"; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        width: Math.max(32, keyLabel.implicitWidth + 18)
+                        radius: 5
+                        Text { id: keyLabel; anchors.centerIn: parent; anchors.verticalCenterOffset: -1; text: modelData[0]
+                               color: keyPlate.textColor; style: Text.Raised; styleColor: keyPlate.textShadow
+                               font.pixelSize: 13; font.weight: Font.Bold }
                     }
-                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData[1]; color: "#e6ebf0"; font.pixelSize: 14 }
+                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData[1]; color: "#e6ebf0"; font.pixelSize: 14
+                           style: Text.Raised; styleColor: Qt.rgba(0, 0, 0, 0.7) }
                 }
             }
         }
