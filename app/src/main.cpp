@@ -13,6 +13,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QIcon>
+#include <QFileInfo>
 #ifdef HAVE_KWINDOWEFFECTS
 #include <KWindowEffects>
 #endif
@@ -33,8 +34,11 @@ int main(int argc, char *argv[])
 
     const bool hud = app.arguments().contains(QStringLiteral("--hud"));
     // Estilo Breeze de KDE para los controles, salvo que el usuario elija otro.
-    if (!hud && qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
-        QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
+    // Estilo de los controles: Breeze en KDE; fuera de KDE, Fusion (viene con Qt y no depende de KDE).
+    if (!hud && qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
+        const bool kde = qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QStringLiteral("KDE"), Qt::CaseInsensitive);
+        QQuickStyle::setStyle(kde ? QStringLiteral("org.kde.desktop") : QStringLiteral("Fusion"));
+    }
 
     Bridge bridge;
     QQmlApplicationEngine engine;
@@ -43,7 +47,18 @@ int main(int argc, char *argv[])
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     bridge.refresh();
-    engine.loadFromModule("NekoWall", hud ? "Hud" : "Main");
+    // HUD: con layer-shell en Wayland si el módulo existe; si no (X11, p. ej. MATE), el HUD normal.
+    QString root = QStringLiteral("Main");
+    if (hud) {
+        bool layerShell = false;
+        if (QGuiApplication::platformName().startsWith(QStringLiteral("wayland"))) {
+            for (const QString &dir : engine.importPathList())
+                if (QFileInfo::exists(dir + QStringLiteral("/org/kde/layershell/qmldir")))
+                    layerShell = true;
+        }
+        root = layerShell ? QStringLiteral("HudWayland") : QStringLiteral("Hud");
+    }
+    engine.loadFromModule("NekoWall", root);
 
 #ifdef HAVE_KWINDOWEFFECTS
     // HUD de cristal: KWin desenfoca lo que hay detrás de la ventana transparente.

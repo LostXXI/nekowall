@@ -1,6 +1,7 @@
 use nekowall_backend::{WallpaperBackend, WallpaperKind};
 use nekowall_core::Service;
 use nekowall_library::{Entry, Filter, Library};
+use nekowall_mate::MateBackend;
 use nekowall_plasma::PlasmaBackend;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -198,6 +199,20 @@ fn cmd_thumbs(lib: &Library, force: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Backend según el escritorio (`XDG_CURRENT_DESKTOP`); `NEKOWALL_BACKEND=mate|plasma` lo fuerza.
+fn detect_backend() -> Box<dyn WallpaperBackend> {
+    match std::env::var("NEKOWALL_BACKEND").ok().as_deref() {
+        Some("mate") => return Box::new(MateBackend::new()),
+        Some("plasma") => return Box::new(PlasmaBackend::new()),
+        _ => {}
+    }
+    if MateBackend::is_current_desktop() {
+        Box::new(MateBackend::new())
+    } else {
+        Box::new(PlasmaBackend::new())
+    }
+}
+
 fn db_path() -> PathBuf {
     if let Some(p) = std::env::var_os("NEKOWALL_DB") {
         return PathBuf::from(p);
@@ -230,8 +245,14 @@ fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("usa el programa `nekowall-gui{}` (carpeta app/)", if cmd == "hud" { " --hud" } else { "" }));
     }
 
+    // Proceso interno que reproduce y pausa el vídeo de fondo en MATE (lo lanza `apply`).
+    if cmd == "_mate-video" {
+        let path = args.get(1).ok_or("falta la ruta del vídeo")?;
+        return nekowall_mate::video::run_daemon(Path::new(path));
+    }
+
     let library = Library::open(&db_path()).map_err(|e| e.to_string())?;
-    let mut svc = Service::new(library, Box::new(PlasmaBackend::new()));
+    let mut svc = Service::new(library, detect_backend());
     let rest = &args[1..];
     let json = rest.iter().any(|a| a == "--json");
     let rest: Vec<String> = rest.iter().filter(|a| *a != "--json").cloned().collect();
@@ -389,8 +410,22 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("Rutas actualizadas: {} · miniaturas conservadas: {thumbs}", moved.len());
         }
         "video-settings" => {
+            let mate = svc.backend_name() == "mate";
+            if !mate && svc.backend_name() != "plasma" {
+                return Err(format!(
+                    "las opciones de pausa del vídeo no existen en este escritorio ({})",
+                    svc.backend_name()
+                ));
+            }
             let plasma = PlasmaBackend::new();
-            let mut s = plasma.video_pause_settings();
+            let m = nekowall_mate::video::load_settings();
+            let mut s = if mate {
+                nekowall_plasma::VideoPauseSettings {
+                    pause_mode: m.pause_mode, battery_pauses: m.battery_pauses, battery_level: m.battery_level,
+                }
+            } else {
+                plasma.video_pause_settings()
+            };
             let mut changed = false;
             if let Some(v) = opt(rest, "--pause-mode") {
                 s.pause_mode = v.parse().map_err(|_| format!("--pause-mode inválido: {v}"))?;
@@ -409,12 +444,22 @@ fn run(args: &[String]) -> Result<(), String> {
                 changed = true;
             }
             if changed {
-                plasma.set_video_pause_settings(&s).map_err(|e| e.to_string())?;
+                if mate {
+                    if s.pause_mode > 3 || s.battery_level > 100 {
+                        return Err(format!("valores fuera de rango: modo {} (0-3), batería {} % (0-100)", s.pause_mode, s.battery_level));
+                    }
+                    nekowall_mate::video::save_settings(&nekowall_mate::video::MateVideoSettings {
+                        pause_mode: s.pause_mode, battery_pauses: s.battery_pauses, battery_level: s.battery_level,
+                    }).map_err(|e| e.to_string())?;
+                } else {
+                    plasma.set_video_pause_settings(&s).map_err(|e| e.to_string())?;
+                }
             }
             if json {
                 println!("{}", serde_json::json!({
                     "pause_mode": s.pause_mode, "battery_pauses": s.battery_pauses,
-                    "battery_level": s.battery_level, "plugin": plasma.video_plugin_installed(),
+                    "battery_level": s.battery_level,
+                    "plugin": if mate { MateBackend::new().video_available() } else { plasma.video_plugin_installed() },
                 }));
             } else {
                 const MODES: [&str; 4] = ["ventana maximizada o a pantalla completa", "ventana activa",

@@ -18,6 +18,7 @@ qt_add_qml_module(nekowall-gui
     VERSION 1.0
     QML_FILES
         qml/Hud.qml
+        qml/HudWayland.qml
         qml/HudCard.qml
         qml/Skeuo.qml
         qml/Main.qml
