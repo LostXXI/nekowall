@@ -59,6 +59,11 @@ impl Service {
         Self { library, backend }
     }
 
+    /// Nombre del backend en uso («plasma», «mate»…).
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
     pub fn capabilities(&self) -> BackendCapabilities {
         self.backend.capabilities()
     }

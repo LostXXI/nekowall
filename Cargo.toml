@@ -4,6 +4,7 @@ members = [
     "crates/nekowall-backend",
     "crates/nekowall-library",
     "crates/nekowall-plasma",
+    "crates/nekowall-mate",
     "crates/nekowall-core",
     "crates/nekowall-cli",
 ]

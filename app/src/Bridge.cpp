@@ -5,6 +5,9 @@
 #include <QGuiApplication>
 #include <QScreen>
 #include <QDir>
+#ifdef HAVE_KWINDOWEFFECTS
+#include <KWindowEffects>
+#endif
 #include <QImageReader>
 #include <QPainter>
 #include <QLinearGradient>
@@ -27,6 +30,13 @@ Bridge::Bridge(QObject *parent)
         m_screenW = px.width();
         m_screenH = px.height();
     }
+    m_wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+#ifdef HAVE_KWINDOWEFFECTS
+    m_glass = KWindowEffects::isEffectAvailable(KWindowEffects::BlurBehind);
+#endif
+    if (qEnvironmentVariableIsSet("NEKOWALL_GLASS"))   // forzar para pruebas: 0/1
+        m_glass = qEnvironmentVariableIntValue("NEKOWALL_GLASS") != 0;
+
     QSettings st;
     m_largePolicy = st.value(QStringLiteral("video/largePolicy"), QStringLiteral("ask")).toString();
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/nekowall");
@@ -472,8 +482,46 @@ void Bridge::openHud()
 
 void Bridge::openShortcutSettings()
 {
-    if (!QProcess::startDetached(QStringLiteral("systemsettings"), {QStringLiteral("kcm_keys")}))
-        emit notice(QStringLiteral("No se pudo abrir Ajustes del sistema"), true);
+    const bool ok = m_backend == QStringLiteral("mate")
+        ? QProcess::startDetached(QStringLiteral("mate-keybinding-properties"), {})
+        : QProcess::startDetached(QStringLiteral("systemsettings"), {QStringLiteral("kcm_keys")});
+    if (!ok)
+        emit notice(QStringLiteral("No se pudo abrir la configuración de atajos"), true);
+}
+
+// Texto → cadena GVariant ('…' con \ y ' escapados): gsettings analiza el valor como GVariant, y un
+// texto con comillas o espacios sin envolver da «expected end of input».
+static QString gvariantString(QString s)
+{
+    s.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('\''), QStringLiteral("\\'"));
+    return QLatin1Char('\'') + s + QLatin1Char('\'');
+}
+
+void Bridge::registerMateShortcut()
+{
+    // Dos atajos personalizados de MATE (efecto inmediato):
+    //   Meta+Alt+W → selector rápido · Meta+Alt+D → mostrar/ocultar iconos con un vídeo de fondo
+    const QString base = QStringLiteral("org.mate.control-center.keybinding:/org/mate/desktop/keybindings/");
+    const QString exe = QCoreApplication::applicationFilePath();
+    const QList<QStringList> keys = {
+        {QStringLiteral("nekowall/"), QStringLiteral("NekoWall · Selector rápido"),
+         QStringLiteral("\"%1\" --hud").arg(exe), QStringLiteral("<Mod4><Alt>w")},
+        {QStringLiteral("nekowall-peek/"), QStringLiteral("NekoWall · Mostrar escritorio"),
+         QStringLiteral("\"%1\" peek").arg(m_cli), QStringLiteral("<Mod4><Alt>d")},
+    };
+    for (const QStringList &k : keys) {
+        const QList<QStringList> sets = {
+            {QStringLiteral("name"), k[1]}, {QStringLiteral("action"), k[2]}, {QStringLiteral("binding"), k[3]}};
+        for (const QStringList &kv : sets) {
+            QProcess p;
+            p.start(QStringLiteral("gsettings"), {QStringLiteral("set"), base + k[0], kv[0], gvariantString(kv[1])});
+            if (!p.waitForFinished(3000) || p.exitCode() != 0) {
+                emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(p.readAllStandardError()), true);
+                return;
+            }
+        }
+    }
+    emit notice(QStringLiteral("Atajos registrados: Meta+Alt+W (selector) y Meta+Alt+D (mostrar escritorio)"), false);
 }
 
 void Bridge::revealInFolder(const QString &path)

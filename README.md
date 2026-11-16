@@ -1,11 +1,19 @@
 # NekoWall
 
-Gestor de fondos de pantalla **estáticos y animados** para **KDE Plasma 6 (Wayland)**, pensado para
-**Void Linux**. Incluye una biblioteca con miniaturas y un **selector rápido** a pantalla completa
+Gestor de fondos de pantalla **estáticos y animados** para **KDE Plasma 6 (Wayland)** y **MATE (X11)**,
+pensado para **Void Linux** / neko-void. Incluye una biblioteca con miniaturas y un **selector rápido** a pantalla completa
 (estilo «Dark Aero») que se abre con un atajo de teclado desde cualquier lugar.
 
-> Estado: versión 0.1 (temprana). Funciona en el equipo del autor (Void Linux, Plasma 6.7.5, Wayland).
-> Por ahora **solo KDE Plasma en Wayland**: no hay soporte para X11 ni para otros escritorios.
+> Estado: versión 0.2 (temprana). **Un solo programa para los dos escritorios**: NekoWall detecta solo si
+> estás en KDE o en MATE (`XDG_CURRENT_DESKTOP`) y usa la parte adecuada. Se puede forzar con
+> `NEKOWALL_BACKEND=plasma|mate`.
+
+| Escritorio | Sesión | Imágenes | Vídeos | Selector (Meta+Alt+W) |
+| --- | --- | --- | --- | --- |
+| **KDE Plasma 6** | Wayland | ✅ | ✅ (plugin Smart Video Wallpaper Reborn) | ✅ cristal desenfocado |
+| **MATE** | X11 | ✅ | ✅ (mpv + xwinwrap) | ✅ fondo oscuro |
+
+**Elige tu escritorio:** [Instalar en KDE Plasma](#instalar-en-kde-plasma) · [Instalar en MATE](#instalar-en-mate)
 
 ## Funciones
 
@@ -20,38 +28,66 @@ Gestor de fondos de pantalla **estáticos y animados** para **KDE Plasma 6 (Wayl
 - **CLI** (`nekowall`) para usar todo desde la terminal o desde scripts.
 - Cerrado no ocupa memoria: no deja procesos en segundo plano.
 
-## Requisitos
+## Instalar en KDE Plasma
 
-| Qué | Paquete(s) de Void |
-| --- | --- |
-| Compilar el núcleo (Rust) | `rust` `cargo` `gcc` |
-| Compilar la interfaz (Qt 6 ≥ 6.5) | `cmake` `make` `qt6-base-devel` `qt6-declarative-devel` |
-| Desenfoque de KWin (opcional, recomendado) | `kf6-kwindowsystem-devel` |
-| Ejecutar | `qt6-wayland` `layer-shell-qt` `kf6-qqc2-desktop-style` `ffmpeg6` `glib` `plasma-workspace` |
-| Fondos de **vídeo** | `qt6-multimedia` + el plugin **Smart Video Wallpaper Reborn** (ver abajo) |
-
-Instalar todo de una vez:
+### 1. Dependencias
 
 ```bash
-sudo xbps-install -S rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
+sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
     kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style \
     ffmpeg6 glib qt6-multimedia
 ```
 
-(`plasma-workspace` ya viene con KDE Plasma.)
-
-### Plugin de vídeo (solo para fondos animados)
-
-NekoWall aplica los vídeos con el plugin de fondo **Smart Video Wallpaper Reborn**
-(`luisbocanegra.smart.video.wallpaper.reborn`), que no está en los repositorios de Void. La forma más
-sencilla de instalarlo es desde el propio Plasma:
+**Para fondos de vídeo** hace falta además el plugin **Smart Video Wallpaper Reborn**
+(`luisbocanegra.smart.video.wallpaper.reborn`), que no está en los repositorios de Void:
 
 1. Clic derecho en el escritorio → **Configurar el escritorio y el fondo de pantalla…**
 2. **Obtener nuevos complementos…** → busca **Smart Video Wallpaper Reborn** → **Instalar**.
 
 Sin el plugin, NekoWall funciona igual con imágenes y avisa de que el vídeo no está disponible.
 
-## Compilar
+### 2. Compilar e instalar
+
+Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
+
+### 3. Atajo Meta+Alt+W
+
+El acceso del menú ya lleva el atajo: **cierra sesión y vuelve a entrar** una vez para que KDE lo active.
+Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
+
+## Instalar en MATE
+
+### 1. Dependencias
+
+```bash
+sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
+    ffmpeg6 glib mpv xwinwrap xprop xdotool
+```
+
+(En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
+
+### 2. Compilar e instalar
+
+Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
+
+### 3. Atajo Meta+Alt+W
+
+Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerrar sesión. Registra dos atajos:
+**Meta+Alt+W** (selector) y **Meta+Alt+D** (mostrar escritorio, ver abajo). También puedes crearlos a mano en
+*Centro de control → Atajos de teclado* con los comandos `nekowall-gui --hud` y `nekowall peek`.
+
+### Cosas a saber en MATE
+
+- Con un **vídeo** de fondo, el vídeo **tapa los iconos del escritorio**, pero siguen ahí: el **clic derecho**
+  del escritorio y el doble clic sobre los iconos funcionan (los clics atraviesan el vídeo hasta Caja).
+  Caja no puede dibujar sus iconos con fondo transparente, así que no se pueden ver a la vez.
+- **Meta+Alt+D** (`nekowall peek`) pausa y oculta el vídeo para ver los iconos encima de un fotograma del mismo
+  vídeo; vuelve a pulsarlo para seguir.
+- El vídeo se pausa solo según tus ventanas y la batería (*Ajustes → Vídeo: pausa y ahorro*) y vuelve a
+  arrancar al iniciar sesión.
+- Sin compositor con desenfoque, el selector usa un fondo oscuro en lugar de cristal.
+
+## Compilar (los dos escritorios)
 
 ```bash
 git clone https://github.com/LostXXI/nekowall.git
@@ -65,13 +101,7 @@ cmake -S app -B app/build -DCMAKE_BUILD_TYPE=Release
 cmake --build app/build -j"$(nproc)"
 ```
 
-Comprobar que todo funciona (opcional):
-
-```bash
-cargo test
-```
-
-Probarlo sin instalar:
+Comprobar que todo funciona (opcional): `cargo test`. Probarlo sin instalar:
 
 ```bash
 ./target/release/nekowall import ~/Pictures/Wallpapers   # indexa tu carpeta de fondos
@@ -79,10 +109,10 @@ Probarlo sin instalar:
 ./app/build/nekowall-gui --hud                            # selector rápido
 ```
 
-## Instalar (para tu usuario, sin `sudo`)
+## Instalar el programa (los dos escritorios)
 
-Copia los dos programas **a la misma carpeta** (la interfaz busca `nekowall` a su lado) y crea el acceso
-del menú con el atajo del selector:
+Para tu usuario, sin `sudo`. Copia los dos programas **a la misma carpeta** (la interfaz busca `nekowall` a su
+lado) y crea el acceso del menú:
 
 ```bash
 mkdir -p ~/.local/bin ~/.local/share/applications
@@ -97,7 +127,7 @@ Comment=Cambia fondos de pantalla estáticos y animados
 Exec=$HOME/.local/bin/nekowall-gui
 Icon=preferences-desktop-wallpaper
 Terminal=false
-Categories=Utility;Settings;DesktopSettings;Qt;KDE;
+Categories=Settings;DesktopSettings;Qt;
 Actions=hud;
 
 [Desktop Action hud]
@@ -105,16 +135,14 @@ Name=Selector rápido
 Exec=$HOME/.local/bin/nekowall-gui --hud
 X-KDE-Shortcuts=Meta+Alt+W
 EOF
-
-kbuildsycoca6
 ```
 
-**Cierra sesión y vuelve a entrar**: KDE registra el atajo **Meta+Alt+W** (tecla Windows + Alt + W) al
-iniciar la sesión. Si quieres otra combinación: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
+En KDE ejecuta además `kbuildsycoca6` para que el menú lo vea al momento.
 
 Para desinstalar: borra `~/.local/bin/nekowall`, `~/.local/bin/nekowall-gui` y
-`~/.local/share/applications/nekowall.desktop`. Tus datos están en `~/.local/share/nekowall/`,
-`~/.cache/nekowall/` y `~/.config/nekowall/` (bórralos si no los quieres).
+`~/.local/share/applications/nekowall.desktop` (en MATE también `~/.config/autostart/nekowall-video.desktop`
+si había un vídeo puesto). Tus datos están en `~/.local/share/nekowall/`, `~/.cache/nekowall/` y
+`~/.config/nekowall/`.
 
 ## Primer uso
 
@@ -149,7 +177,10 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
 
 ## Limitaciones conocidas
 
-- Solo **KDE Plasma 6 en Wayland**. X11, GNOME, Sway/Hyprland, etc. no están soportados todavía.
+- Escritorios soportados: **KDE Plasma 6 (Wayland)** y **MATE (X11)**. XFCE, LXQt, i3, Openbox, labwc, niri… aún no.
+- En MATE, con un vídeo de fondo los iconos del escritorio quedan tapados (funcionan, pero no se ven):
+  Meta+Alt+D los muestra.
+- En X11 sin compositor con desenfoque el selector usa un fondo oscuro en lugar de cristal.
 - Un solo monitor: el mismo fondo se aplica a todos los escritorios.
 - Los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
 
@@ -165,10 +196,19 @@ Pendiente de definir (el `Cargo.toml` indica provisionalmente GPL-3.0-or-later).
 - `crates/nekowall-backend`: modelos (`Wallpaper`, `WallpaperKind`) y el contrato `WallpaperBackend`.
 - `crates/nekowall-library`: biblioteca SQLite (`rusqlite` con SQLite embebido).
 - `crates/nekowall-core`: orquestación (`Service`: aplicar, siguiente/anterior, restaurar).
+- `crates/nekowall-mate`: backend de MATE. Imágenes: gsettings `org.mate.background picture-filename`. Vídeo
+  (`video.rs`): `xwinwrap` (ventana tipo escritorio, sin entrada `-ni`) + `mpv` en bucle sin audio, ENCIMA de la
+  ventana de escritorio de Caja (si Caja queda encima, se recrea y Marco la pone debajo); los clics atraviesan
+  el vídeo hasta Caja. Caja pinta el fondo estático bajo los iconos (pseudo-transparencia), por eso no puede
+  mostrarlos sobre el vídeo: `peek` desmapea y pausa el vídeo; bajo él Caja muestra un fotograma del vídeo. Un proceso propio `nekowall _mate-video` pausa
+  por IPC de mpv según las ventanas (xprop: maximizada/completa, activa, cualquiera, nunca) y la batería; se
+  relanza al iniciar sesión con `~/.config/autostart/nekowall-video.desktop`. Estado y ajustes en
+  `~/.config/nekowall/mate.conf`.
 - `crates/nekowall-plasma`: backend de KDE Plasma (`plasma-apply-wallpaperimage` para imágenes; script por
   D-Bus a `org.kde.plasmashell /PlasmaShell evaluateScript` para el plugin de vídeo).
 - `crates/nekowall-cli`: la CLI `nekowall` (y `media.rs`: ffprobe/ffmpeg).
-- `app/`: interfaz Qt 6/QML en C++. `Bridge` llama a la CLI con `--json` mediante `QProcess` asíncrono
+- `app/`: interfaz Qt 6/QML en C++. El selector es `Hud.qml`; en Wayland, si existe `org.kde.layershell`, se carga
+  `HudWayland.qml` (el mismo HUD + layer-shell). En X11 es una ventana a pantalla completa siempre encima. `Bridge` llama a la CLI con `--json` mediante `QProcess` asíncrono
   (en lugar de CXX-Qt): compila en segundos y la interfaz nunca se bloquea.
 
 ### Decisiones
@@ -187,6 +227,12 @@ KF6WindowSystem), paneles de cristal con brillo, acento turquesa (#39C5BB), halo
 tarjeta activa. La ilustración opcional la elige el usuario en Ajustes; se copia a
 `~/.local/share/nekowall/mascota.*` y se «hornea» una vez (recortada y fundida) en
 `~/.cache/nekowall/hud-art-*.png`, de modo que el selector dibuja una sola imagen sin efectos.
+
+### Pruebas en MATE
+Máquina virtual QEMU/KVM con la ISO de neko-void MATE (X11, Caja + Marco + mate-panel): aplicar imágenes
+(CLI, ventana y selector con teclado), «Registrar atajo» y Meta+Alt+W, vídeo de fondo (se mueve, pausa con
+ventana maximizada y en modo «ventana activa», vuelve a imagen restaurando iconos, sobrevive a un reinicio)
+comprobados con capturas de la VM. El rendimiento del vídeo no se midió: la VM decodifica por software.
 
 ### Rendimiento (Intel i7-8550U, UHD 620, 1920×1080)
 - NekoWall cerrado: 0 MiB. Selector: ~62 MiB (PSS) y ~190 ms hasta el primer fotograma (enchufado).

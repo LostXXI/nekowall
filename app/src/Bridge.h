@@ -24,6 +24,10 @@ class Bridge : public QObject {
     Q_PROPERTY(QString thumbsDir READ thumbsDir NOTIFY statusChanged)
     Q_PROPERTY(int thumbVersion READ thumbVersion NOTIFY wallpapersChanged)
     Q_PROPERTY(QString shortcut READ shortcut CONSTANT)
+    // Wayland (layer-shell) o X11 (ventana a pantalla completa, siempre encima).
+    Q_PROPERTY(bool wayland READ wayland CONSTANT)
+    // El compositor puede desenfocar detrás de la ventana (KWin): HUD de cristal; si no, fondo opaco.
+    Q_PROPERTY(bool glass READ glass CONSTANT)
     // Pantalla principal en píxeles reales (decide qué vídeos son «más grandes que la pantalla»).
     Q_PROPERTY(int screenWidth READ screenWidth CONSTANT)
     Q_PROPERTY(int screenHeight READ screenHeight CONSTANT)
@@ -64,6 +68,8 @@ public:
     QString thumbsDir() const { return m_thumbsDir; }
     int thumbVersion() const { return m_thumbVersion; }
     QString shortcut() const;
+    bool wayland() const { return m_wayland; }
+    bool glass() const { return m_glass; }
 
     // Rutas locales o URLs file:// (lo que devuelven los diálogos de QML).
     Q_INVOKABLE void importPaths(const QVariantList &paths);
@@ -71,6 +77,8 @@ public:
     Q_INVOKABLE void regenerateThumbs();
     Q_INVOKABLE void openHud();
     Q_INVOKABLE void openShortcutSettings();
+    // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
+    Q_INVOKABLE void registerMateShortcut();
     Q_INVOKABLE void revealInFolder(const QString &path);
 
     int screenWidth() const { return m_screenW; }
@@ -167,6 +175,8 @@ private:
     int m_jobsDone = 0;
     int m_jobsFailed = 0;
     QString bakedMascot() const;
+    bool m_wayland = false;
+    bool m_glass = false;
     QString m_mascotPath;
     bool m_showMascot = true;
     double m_mascotFocusX = 0.5;

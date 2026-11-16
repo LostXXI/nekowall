@@ -7,27 +7,29 @@
 import QtQuick
 import QtQuick.Window
 import QtQuick.Effects
-import org.kde.layershell 1.0 as LayerShell
 
 Window {
     id: root
 
     title: "NekoWall"
-    color: "transparent"   // cristal: KWin desenfoca el escritorio detrás
+    // Cristal si el compositor desenfoca (KWin); si no (p. ej. MATE/X11), fondo oscuro opaco.
+    color: Bridge.glass ? "transparent" : "#0b0f14"
     visible: false
     width: Screen.width
     height: Screen.height
-    flags: Qt.FramelessWindowHint
+    // En X11 no hay layer-shell: ventana sin bordes, siempre encima y a pantalla completa.
+    flags: Bridge.wayland ? Qt.FramelessWindowHint : (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
 
-    // Wayland: capa «overlay» anclada a los cuatro bordes, con el teclado en exclusiva.
-    LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
-                               | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
-    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
-    LayerShell.Window.exclusionZone: -1
-    LayerShell.Window.scope: "nekowall-hud"
 
-    Component.onCompleted: show()
+    Component.onCompleted: {
+        if (Bridge.wayland) {
+            show()
+        } else {
+            showFullScreen()
+            raise()
+            requestActivate()          // el teclado debe llegar al HUD en X11
+        }
+    }
 
     readonly property bool reduced: Bridge.reducedMotion
     readonly property color accent: "#39C5BB"   // turquesa Miku
@@ -204,7 +206,7 @@ Window {
             sourceSize.width: 48
             smooth: true
             asynchronous: true
-            opacity: 0.35
+            opacity: Bridge.glass ? 0.35 : 0.85   // sin cristal hace de fondo principal
         }
         // Ilustración (Miku) a la derecha: llega ya recortada, fundida y con su opacidad
         // (Bridge::bakedMascot), así que es una sola imagen sin efectos ni capas intermedias.
