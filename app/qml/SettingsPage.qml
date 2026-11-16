@@ -164,7 +164,8 @@ ScrollView {
             text: "Backend: " + (Bridge.backend || "detectando…")
                   + (Bridge.backend === "plasma" ? " (KDE Plasma)" : Bridge.backend === "mate" ? " (MATE, X11)" : "")
                   + " · Fondos de vídeo: " + (Bridge.videoSupported
-                        ? "disponibles (plugin Smart Video Wallpaper Reborn)"
+                        ? (Bridge.backend === "mate" ? "disponibles (mpv + xwinwrap)"
+                                                     : "disponibles (plugin Smart Video Wallpaper Reborn)")
                         : Bridge.backend === "plasma" ? "no disponibles; instala un plugin de vídeo para Plasma 6"
                                                       : "aún no implementados en este escritorio")
         }

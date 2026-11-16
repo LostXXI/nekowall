@@ -10,6 +10,7 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QIcon>
@@ -34,10 +35,19 @@ int main(int argc, char *argv[])
 
     const bool hud = app.arguments().contains(QStringLiteral("--hud"));
     // Estilo Breeze de KDE para los controles, salvo que el usuario elija otro.
-    // Estilo de los controles: Breeze en KDE; fuera de KDE, Fusion (viene con Qt y no depende de KDE).
+    // Estilo de los controles: Breeze en KDE si su módulo QML está instalado (kf6-qqc2-desktop-style);
+    // en cualquier otro caso Fusion, que viene con Qt. Sin esta comprobación, fuera de KDE la ventana no
+    // abre («module "org.kde.desktop" is not installed»).
     if (!hud && qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
         const bool kde = qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains(QStringLiteral("KDE"), Qt::CaseInsensitive);
-        QQuickStyle::setStyle(kde ? QStringLiteral("org.kde.desktop") : QStringLiteral("Fusion"));
+        bool breeze = false;
+        if (kde) {
+            QQmlEngine probe;
+            for (const QString &dir : probe.importPathList())
+                if (QFileInfo::exists(dir + QStringLiteral("/org/kde/desktop/qmldir")))
+                    breeze = true;
+        }
+        QQuickStyle::setStyle(breeze ? QStringLiteral("org.kde.desktop") : QStringLiteral("Fusion"));
     }
 
     Bridge bridge;

@@ -127,7 +127,7 @@ Comment=Cambia fondos de pantalla estáticos y animados
 Exec=$HOME/.local/bin/nekowall-gui
 Icon=preferences-desktop-wallpaper
 Terminal=false
-Categories=Utility;Settings;DesktopSettings;Qt;
+Categories=Settings;DesktopSettings;Qt;
 Actions=hud;
 
 [Desktop Action hud]

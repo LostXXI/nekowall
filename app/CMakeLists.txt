@@ -4,7 +4,21 @@ project(nekowall-gui LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Qml Quick QuickControls2)
+# Qt 6 con QML. Si falta algo, explicar qué paquete de Void instalar (en lugar del error genérico de CMake).
+find_package(Qt6 6.5 QUIET COMPONENTS Core Gui Widgets)
+if(NOT Qt6_FOUND)
+    message(FATAL_ERROR
+        "\nNo se encontraron las bibliotecas de desarrollo de Qt 6.\n"
+        "Instálalas con:   sudo xbps-install -S qt6-base-devel qt6-declarative-devel\n"
+        "(en neko-void puede ser «doas» en lugar de «sudo»)\n")
+endif()
+find_package(Qt6 6.5 QUIET COMPONENTS Qml Quick QuickControls2)
+if(NOT Qt6Qml_FOUND OR NOT Qt6Quick_FOUND OR NOT Qt6QuickControls2_FOUND)
+    message(FATAL_ERROR
+        "\nFalta Qt Quick / QML (el paquete de desarrollo de QML de Qt 6).\n"
+        "Instálalo con:   sudo xbps-install -S qt6-declarative-devel\n"
+        "(en neko-void puede ser «doas» en lugar de «sudo»)\n")
+endif()
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(nekowall-gui
