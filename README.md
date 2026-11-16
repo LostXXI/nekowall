@@ -61,7 +61,7 @@ Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
-    ffmpeg6 glib mpv xwinwrap xprop
+    ffmpeg6 glib mpv xwinwrap xprop xdotool
 ```
 
 (En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
@@ -72,13 +72,17 @@ Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar
 
 ### 3. Atajo Meta+Alt+W
 
-Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerrar sesión. También puedes
-crearlo a mano en *Centro de control → Atajos de teclado* con el comando `nekowall-gui --hud`.
+Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerrar sesión. Registra dos atajos:
+**Meta+Alt+W** (selector) y **Meta+Alt+D** (mostrar escritorio, ver abajo). También puedes crearlos a mano en
+*Centro de control → Atajos de teclado* con los comandos `nekowall-gui --hud` y `nekowall peek`.
 
 ### Cosas a saber en MATE
 
-- Mientras hay un **vídeo** de fondo se **ocultan los iconos del escritorio** (Caja los dibuja en una ventana
-  que taparía el vídeo). Vuelven al aplicar una imagen.
+- Con un **vídeo** de fondo, el vídeo **tapa los iconos del escritorio**, pero siguen ahí: el **clic derecho**
+  del escritorio y el doble clic sobre los iconos funcionan (los clics atraviesan el vídeo hasta Caja).
+  Caja no puede dibujar sus iconos con fondo transparente, así que no se pueden ver a la vez.
+- **Meta+Alt+D** (`nekowall peek`) pausa y oculta el vídeo para ver los iconos encima de un fotograma del mismo
+  vídeo; vuelve a pulsarlo para seguir.
 - El vídeo se pausa solo según tus ventanas y la batería (*Ajustes → Vídeo: pausa y ahorro*) y vuelve a
   arrancar al iniciar sesión.
 - Sin compositor con desenfoque, el selector usa un fondo oscuro en lugar de cristal.
@@ -174,8 +178,8 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
 ## Limitaciones conocidas
 
 - Escritorios soportados: **KDE Plasma 6 (Wayland)** y **MATE (X11)**. XFCE, LXQt, i3, Openbox, labwc, niri… aún no.
-- En MATE, mientras hay un vídeo de fondo **se ocultan los iconos del escritorio** (la ventana de escritorio de
-  Caja taparía el vídeo); vuelven al aplicar una imagen.
+- En MATE, con un vídeo de fondo los iconos del escritorio quedan tapados (funcionan, pero no se ven):
+  Meta+Alt+D los muestra.
 - En X11 sin compositor con desenfoque el selector usa un fondo oscuro en lugar de cristal.
 - Un solo monitor: el mismo fondo se aplica a todos los escritorios.
 - Los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
@@ -193,8 +197,10 @@ Pendiente de definir (el `Cargo.toml` indica provisionalmente GPL-3.0-or-later).
 - `crates/nekowall-library`: biblioteca SQLite (`rusqlite` con SQLite embebido).
 - `crates/nekowall-core`: orquestación (`Service`: aplicar, siguiente/anterior, restaurar).
 - `crates/nekowall-mate`: backend de MATE. Imágenes: gsettings `org.mate.background picture-filename`. Vídeo
-  (`video.rs`): `xwinwrap` (ventana tipo escritorio, debajo) + `mpv` en bucle sin audio; Caja deja de dibujar el
-  escritorio (`show-desktop-icons false`, se guarda y restaura). Un proceso propio `nekowall _mate-video` pausa
+  (`video.rs`): `xwinwrap` (ventana tipo escritorio, sin entrada `-ni`) + `mpv` en bucle sin audio, ENCIMA de la
+  ventana de escritorio de Caja (si Caja queda encima, se recrea y Marco la pone debajo); los clics atraviesan
+  el vídeo hasta Caja. Caja pinta el fondo estático bajo los iconos (pseudo-transparencia), por eso no puede
+  mostrarlos sobre el vídeo: `peek` desmapea y pausa el vídeo; bajo él Caja muestra un fotograma del vídeo. Un proceso propio `nekowall _mate-video` pausa
   por IPC de mpv según las ventanas (xprop: maximizada/completa, activa, cualquiera, nunca) y la batería; se
   relanza al iniciar sesión con `~/.config/autostart/nekowall-video.desktop`. Estado y ajustes en
   `~/.config/nekowall/mate.conf`.

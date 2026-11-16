@@ -87,7 +87,7 @@ ScrollView {
         }
         Hint {
             visible: Bridge.backend === "mate" && Bridge.videoPluginInstalled
-            text: "En MATE, mientras hay un vídeo de fondo se ocultan los iconos del escritorio (Caja los taparía); vuelven al poner una imagen."
+            text: "En MATE el vídeo tapa los iconos del escritorio, pero siguen ahí: el clic derecho y los iconos funcionan. Pulsa Meta+Alt+D (tras «Registrar atajo») para pausar el vídeo y verlos; vuelve a pulsarlo para seguir."
         }
         Hint {
             visible: Bridge.backend === "plasma" && !Bridge.videoPluginInstalled

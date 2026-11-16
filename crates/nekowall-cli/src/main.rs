@@ -36,6 +36,7 @@ USO:
   nekowall relocate <carpeta-vieja> <carpeta-nueva>
                                        Tras mover/renombrar una carpeta: actualiza las rutas de
                                        la biblioteca (conserva favoritos) y las miniaturas
+  nekowall peek                        MATE: muestra u oculta los iconos del escritorio con un vídeo de fondo
   nekowall help
 
 `list`, `status`, `import` y `video-settings` aceptan --json (formato para la interfaz gráfica).
@@ -249,6 +250,13 @@ fn run(args: &[String]) -> Result<(), String> {
     if cmd == "_mate-video" {
         let path = args.get(1).ok_or("falta la ruta del vídeo")?;
         return nekowall_mate::video::run_daemon(Path::new(path));
+    }
+
+    // MATE: alterna «mostrar escritorio» (oculta y pausa el vídeo de fondo para ver los iconos de Caja).
+    if cmd == "peek" {
+        let shown = nekowall_mate::video::toggle_peek()?;
+        println!("{}", if shown { "Escritorio visible (vídeo en pausa)" } else { "Vídeo de fondo reanudado" });
+        return Ok(());
     }
 
     let library = Library::open(&db_path()).map_err(|e| e.to_string())?;

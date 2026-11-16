@@ -1,9 +1,10 @@
 //! Fondos de vídeo en MATE (X11).
 //!
-//! Caja dibuja el escritorio en una ventana propia que taparía cualquier vídeo, así que mientras hay
-//! un vídeo de fondo se desactiva el escritorio de Caja (`show-desktop-icons false`, lo que oculta los
-//! iconos) y se restaura al volver a una imagen. El vídeo lo reproduce `mpv` dentro de una ventana
-//! de tipo escritorio creada por `xwinwrap`, debajo de todas las demás.
+//! El vídeo lo reproduce `mpv` dentro de una ventana de tipo escritorio creada por `xwinwrap`, debajo
+//! de las ventanas normales pero ENCIMA del escritorio de Caja, y sin recibir clics (`-ni`): los clics
+//! llegan a Caja, así que el clic derecho del escritorio y los iconos siguen funcionando aunque no se
+//! vean. Caja no puede ser transparente (copia el fondo estático bajo los iconos), por eso los iconos
+//! quedan tapados; `nekowall peek` (atajo Meta+Alt+D) oculta y pausa el vídeo para verlos.
 //!
 //! Un proceso propio (`nekowall _mate-video <ruta>`) vigila esa reproducción: pausa el vídeo según las
 //! ventanas (mismos modos que el plugin de Plasma) y la batería, hablando con mpv por su socket IPC.
@@ -59,6 +60,49 @@ fn pid_file() -> PathBuf {
     runtime_dir().join("mate-video.pid")
 }
 
+fn peek_file() -> PathBuf {
+    runtime_dir().join("peek")
+}
+
+/// Alterna «mostrar escritorio»: devuelve `true` si ahora se ven los iconos (vídeo oculto y en pausa).
+pub fn toggle_peek() -> Result<bool, String> {
+    if running_pid().is_none() {
+        return Err("no hay ningún fondo de vídeo en marcha".into());
+    }
+    let f = peek_file();
+    if f.exists() {
+        std::fs::remove_file(&f).map_err(|e| e.to_string())?;
+        Ok(false)
+    } else {
+        std::fs::write(&f, b"1").map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
+
+/// Fotograma del vídeo (segundo 1, a tamaño completo) en ~/.cache/nekowall/mate-frame.jpg.
+pub fn still_frame(video: &Path) -> Option<PathBuf> {
+    let dir = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?
+        .join("nekowall");
+    std::fs::create_dir_all(&dir).ok()?;
+    let out = dir.join("mate-frame.jpg");
+    for seek in ["1", "0"] {
+        let ok = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-nostdin", "-ss", seek, "-i"])
+            .arg(video)
+            .args(["-frames:v", "1", "-q:v", "3"])
+            .arg(&out)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok && std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false) {
+            return Some(out);
+        }
+    }
+    None
+}
+
 fn autostart_file() -> PathBuf {
     config_dir().parent().unwrap_or(Path::new(".")).join("autostart/nekowall-video.desktop")
 }
@@ -109,14 +153,6 @@ pub fn current_video() -> Option<PathBuf> {
 
 pub fn remember_video(path: Option<&Path>) -> std::io::Result<()> {
     set_state("video", path.map(|p| p.to_string_lossy()).as_deref())
-}
-
-/// Guarda el valor de `show-desktop-icons` la primera vez (para restaurarlo después).
-pub fn save_icons_once(current: &str) -> std::io::Result<()> {
-    if get_state("caja_icons").is_none() {
-        set_state("caja_icons", Some(current))?;
-    }
-    Ok(())
 }
 
 /// Valor guardado de `show-desktop-icons` (y lo olvida).
@@ -251,6 +287,36 @@ fn window(id: &str) -> Win {
     }
 }
 
+fn gsettings(args: &[&str]) -> String {
+    Command::new("gsettings")
+        .args(args)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Si la ventana de escritorio de Caja quedó ENCIMA del vídeo (Caja arrancó o se reinició después),
+/// se recrea: Marco coloca la nueva debajo y el vídeo vuelve a verse. Solo si Caja dibuja escritorio.
+fn ensure_video_above_caja(own: &str) {
+    if gsettings(&["get", "org.mate.background", "show-desktop-icons"]) != "true" {
+        return;
+    }
+    let stack = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST_STACKING"])); // de abajo a arriba
+    let Some(video_at) = stack.iter().position(|w| w == own) else { return };
+    let caja_above = stack[video_at + 1..]
+        .iter()
+        .any(|w| xprop(&["-id", w, "WM_CLASS"]).contains("\"desktop_window\""));
+    if caja_above {
+        gsettings(&["set", "org.mate.background", "show-desktop-icons", "false"]);
+        std::thread::sleep(Duration::from_millis(400));
+        gsettings(&["set", "org.mate.background", "show-desktop-icons", "true"]);
+    }
+}
+
+fn xdotool(args: &[&str]) {
+    let _ = Command::new("xdotool").args(args).stdout(Stdio::null()).stderr(Stdio::null()).status();
+}
+
 fn battery_low(level: u8) -> bool {
     let Ok(rd) = std::fs::read_dir("/sys/class/power_supply") else { return false };
     for e in rd.flatten() {
@@ -304,6 +370,8 @@ pub fn run_daemon(video: &Path) -> Result<(), String> {
     std::fs::write(pid_file(), std::process::id().to_string()).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(mpv_socket());
     let (w, h) = screen_size();
+    // Ventanas que ya existían: la del vídeo será la nueva (Caja también es «de escritorio»).
+    let before = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]));
     let mut child: Child = Command::new("xwinwrap")
         .args(["-g", &format!("{w}x{h}+0+0"), "-ni", "-fdt", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
         .args(["mpv", "-wid", "WID", "--loop", "--no-audio", "--no-osc", "--no-input-default-bindings",
@@ -316,30 +384,71 @@ pub fn run_daemon(video: &Path) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("no se pudo lanzar xwinwrap/mpv: {e}"))?;
 
-    // Ventana propia (la de xwinwrap) para no contarla al decidir la pausa.
-    std::thread::sleep(Duration::from_millis(800));
-    let own = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]))
-        .into_iter()
-        .find(|id| xprop(&["-id", id, "_NET_WM_WINDOW_TYPE"]).contains("_NET_WM_WINDOW_TYPE_DESKTOP"));
+    // Ventana propia (la de xwinwrap): nueva, de tipo escritorio y sin WM_CLASS. Se espera hasta 5 s.
+    let mut own = None;
+    for _ in 0..25 {
+        std::thread::sleep(Duration::from_millis(200));
+        own = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"])).into_iter().find(|id| {
+            !before.contains(id) && {
+                let p = xprop(&["-id", id, "_NET_WM_WINDOW_TYPE", "WM_CLASS"]);
+                p.contains("_NET_WM_WINDOW_TYPE_DESKTOP") && !p.contains("desktop_window")
+            }
+        });
+        if own.is_some() {
+            break;
+        }
+    }
 
+    let _ = std::fs::remove_file(peek_file());
+    if let Some(id) = own.as_deref() {
+        std::thread::sleep(Duration::from_millis(300));
+        ensure_video_above_caja(id);
+    }
+
+    // Bucle cada 200 ms: «mostrar escritorio» responde rápido; la pausa se decide cada segundo y el
+    // orden respecto a Caja cada 5 s.
     let mut paused = false;
+    let mut peeking = false;
     let mut tick = 0u32;
     let mut settings = load_settings();
     loop {
         if let Ok(Some(_)) = child.try_wait() {
             break; // mpv/xwinwrap terminó (ventana cerrada, archivo inválido…)
         }
-        if tick % 10 == 0 {
-            settings = load_settings(); // recoge cambios hechos desde la interfaz
+        let peek = peek_file().exists();
+        if peek != peeking {
+            peeking = peek;
+            if let Some(id) = own.as_deref() {
+                if peek {
+                    mpv_pause(true);
+                    xdotool(&["windowunmap", id]);
+                } else {
+                    xdotool(&["windowmap", id]);
+                    std::thread::sleep(Duration::from_millis(300));
+                    ensure_video_above_caja(id);
+                    paused = !paused; // fuerza a reaplicar el estado de pausa abajo
+                }
+            }
         }
-        let want = should_pause(&settings, own.as_deref());
-        if want != paused {
-            mpv_pause(want);
-            paused = want;
+        if !peeking && tick % 5 == 0 {
+            if tick % 50 == 0 {
+                settings = load_settings(); // recoge cambios hechos desde la interfaz
+            }
+            let want = should_pause(&settings, own.as_deref());
+            if want != paused {
+                mpv_pause(want);
+                paused = want;
+            }
+        }
+        if !peeking && tick % 25 == 0 && tick > 0 {
+            if let Some(id) = own.as_deref() {
+                ensure_video_above_caja(id);
+            }
         }
         tick = tick.wrapping_add(1);
-        std::thread::sleep(Duration::from_millis(1000));
+        std::thread::sleep(Duration::from_millis(200));
     }
+    let _ = std::fs::remove_file(peek_file());
     let _ = std::fs::remove_file(pid_file());
     Ok(())
 }

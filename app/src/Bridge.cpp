@@ -499,22 +499,29 @@ static QString gvariantString(QString s)
 
 void Bridge::registerMateShortcut()
 {
-    const QString schema = QStringLiteral("org.mate.control-center.keybinding:/org/mate/desktop/keybindings/nekowall/");
+    // Dos atajos personalizados de MATE (efecto inmediato):
+    //   Meta+Alt+W → selector rápido · Meta+Alt+D → mostrar/ocultar iconos con un vídeo de fondo
+    const QString base = QStringLiteral("org.mate.control-center.keybinding:/org/mate/desktop/keybindings/");
     const QString exe = QCoreApplication::applicationFilePath();
-    const QList<QStringList> sets = {
-        {QStringLiteral("name"), QStringLiteral("NekoWall · Selector rápido")},
-        {QStringLiteral("action"), QStringLiteral("\"%1\" --hud").arg(exe)},
-        {QStringLiteral("binding"), QStringLiteral("<Mod4><Alt>w")},
+    const QList<QStringList> keys = {
+        {QStringLiteral("nekowall/"), QStringLiteral("NekoWall · Selector rápido"),
+         QStringLiteral("\"%1\" --hud").arg(exe), QStringLiteral("<Mod4><Alt>w")},
+        {QStringLiteral("nekowall-peek/"), QStringLiteral("NekoWall · Mostrar escritorio"),
+         QStringLiteral("\"%1\" peek").arg(m_cli), QStringLiteral("<Mod4><Alt>d")},
     };
-    for (const QStringList &kv : sets) {
-        QProcess p;
-        p.start(QStringLiteral("gsettings"), {QStringLiteral("set"), schema, kv[0], gvariantString(kv[1])});
-        if (!p.waitForFinished(3000) || p.exitCode() != 0) {
-            emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(p.readAllStandardError()), true);
-            return;
+    for (const QStringList &k : keys) {
+        const QList<QStringList> sets = {
+            {QStringLiteral("name"), k[1]}, {QStringLiteral("action"), k[2]}, {QStringLiteral("binding"), k[3]}};
+        for (const QStringList &kv : sets) {
+            QProcess p;
+            p.start(QStringLiteral("gsettings"), {QStringLiteral("set"), base + k[0], kv[0], gvariantString(kv[1])});
+            if (!p.waitForFinished(3000) || p.exitCode() != 0) {
+                emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(p.readAllStandardError()), true);
+                return;
+            }
         }
     }
-    emit notice(QStringLiteral("Atajo Meta+Alt+W registrado: ya puedes usarlo"), false);
+    emit notice(QStringLiteral("Atajos registrados: Meta+Alt+W (selector) y Meta+Alt+D (mostrar escritorio)"), false);
 }
 
 void Bridge::revealInFolder(const QString &path)

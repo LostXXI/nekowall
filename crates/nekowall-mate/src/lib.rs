@@ -87,12 +87,18 @@ impl<R: CommandRunner> MateBackend<R> {
         let exe = std::env::current_exe()?;
         video::stop();
         video::spawn(&exe, &w.path)?;
-        // El escritorio de Caja taparía el vídeo: se desactiva (y se recuerda cómo estaba).
-        let icons = self.gsettings(&["get", SCHEMA, "show-desktop-icons"]).unwrap_or_else(|_| "true".into());
-        video::save_icons_once(&icons)?;
-        self.gsettings(&["set", SCHEMA, "show-desktop-icons", "false"])?;
+        // Versiones anteriores apagaban el escritorio de Caja: si quedó apagado por NekoWall, se restaura
+        // (ahora Caja sigue activo debajo del vídeo y recibe los clics).
+        if let Some(prev) = video::take_saved_icons() {
+            self.gsettings(&["set", SCHEMA, "show-desktop-icons", &prev])?;
+        }
         video::remember_video(Some(&w.path))?;
         video::set_autostart(Some(&exe), Some(&w.path))?;
+        // Debajo del vídeo, Caja muestra un fotograma del mismo vídeo: al «mostrar escritorio» (Meta+Alt+D)
+        // el cambio es suave. Si ffmpeg falla, se queda la imagen que hubiera.
+        if let Some(frame) = video::still_frame(&w.path) {
+            let _ = self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&frame.to_string_lossy())]);
+        }
         Ok(())
     }
 
