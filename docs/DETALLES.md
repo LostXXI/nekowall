@@ -14,8 +14,8 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
   (el selector se abre en la pantalla del ratón); la tecla **P** del selector o la lista «Esta pantalla /
   Pantalla N / Todas» de la biblioteca eligen otra. En MATE se compone una imagen para todo el escritorio
   (Caja solo admite una) y hay un reproductor de vídeo por pantalla, cada uno con su propia pausa. En KDE
-  se cambia el escritorio de Plasma de esa pantalla. *Probado con dos pantallas solo en MATE (máquina
-  virtual); en KDE, con una sola.*
+  se cambia el escritorio de Plasma de esa pantalla. *Probado con dos pantallas en KDE (equipo real) y
+  en MATE (máquina virtual).*
 - **Carpetas vigiladas**: las carpetas añadidas se revisan al abrir NekoWall y, mientras está abierto, al
   cambiar: lo que copies aparece solo y lo que borres desaparece. Lo que quitas a mano no vuelve.
 - **Carpeta propia**: `nekowallpapers` dentro de la carpeta de Imágenes (`XDG_PICTURES_DIR`, normalmente
@@ -183,7 +183,6 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
 - En MATE, con un vídeo de fondo los iconos del escritorio quedan tapados (funcionan, pero no se ven):
   Meta+Alt+D los muestra.
 - En X11 sin compositor con desenfoque el selector usa un fondo oscuro en lugar de cristal.
-- Varias pantallas en KDE: sin probar con dos pantallas reales.
 - En KDE, los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
 
 ## Licencia

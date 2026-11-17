@@ -9,7 +9,7 @@
 //!   - Pendiente de validar: pasar de vídeo a imagen con `plasma-apply-wallpaperimage`.
 //! Varias pantallas: Plasma tiene un escritorio (contenedor) por pantalla. El script elige el de la
 //! pantalla pedida comparando `screenGeometry(d.screen)` con la posición que da `kscreen-doctor -j`
-//! (comprobado con una pantalla en Plasma 6.7.5; con dos, SIN PROBAR en un equipo real).
+//! (comprobado en Plasma 6.7.5 con dos pantallas reales, 2026-11-16).
 
 use nekowall_backend::{
     BackendCapabilities, Monitor, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
