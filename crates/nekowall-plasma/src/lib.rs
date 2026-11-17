@@ -7,9 +7,12 @@
 //!     abrir la interfaz y el shell siguió respondiendo).
 //!   - El formato de `VideoUrls` se copió de lo que Plasma escribió realmente.
 //!   - Pendiente de validar: pasar de vídeo a imagen con `plasma-apply-wallpaperimage`.
+//! Varias pantallas: Plasma tiene un escritorio (contenedor) por pantalla. El script elige el de la
+//! pantalla pedida comparando `screenGeometry(d.screen)` con la posición que da `kscreen-doctor -j`
+//! (comprobado con una pantalla en Plasma 6.7.5; con dos, SIN PROBAR en un equipo real).
 
 use nekowall_backend::{
-    BackendCapabilities, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
+    BackendCapabilities, Monitor, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -117,6 +120,79 @@ impl<R: CommandRunner> PlasmaBackend<R> {
         })
     }
 
+    /// Pantallas encendidas según `kscreen-doctor -j` (tamaño lógico: modo ÷ escala, girado si toca).
+    pub fn monitors(&self) -> Vec<Monitor> {
+        let Ok(out) = self.runner.run("kscreen-doctor", &["-j"]) else { return Vec::new() };
+        parse_kscreen(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    /// Ejecuta el script y devuelve lo que imprimió (`print`).
+    fn evaluate_script_output(&self, script: &str) -> Result<String, WallpaperError> {
+        let out = self
+            .runner
+            .run(
+                "gdbus",
+                &[
+                    "call", "--session", "--timeout", DBUS_TIMEOUT_SECS,
+                    "--dest", "org.kde.plasmashell",
+                    "--object-path", "/PlasmaShell",
+                    "--method", "org.kde.PlasmaShell.evaluateScript",
+                    script,
+                ],
+            )
+            .map_err(WallpaperError::Io)?;
+        if !out.status.success() {
+            let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            const DEAD: [&str; 4] = ["UnknownObject", "ServiceUnknown", "NameHasNoOwner", "Timeout"];
+            if DEAD.iter().any(|m| detail.contains(m)) {
+                return Err(WallpaperError::BackendUnavailable(
+                    "plasmashell no responde por D-Bus (¿colgado o no iniciado?)".into(),
+                ));
+            }
+            return Err(WallpaperError::CommandFailed { command: "gdbus … evaluateScript".into(), detail });
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    /// Aplica en UNA pantalla: el script cambia solo el escritorio cuya geometría empieza en la
+    /// posición de esa pantalla y avisa si no encontró ninguno.
+    fn apply_on_monitor(&self, wallpaper: &Wallpaper, name: &str) -> Result<(), WallpaperError> {
+        let mons = self.monitors();
+        let Some(m) = mons.iter().find(|m| m.name == name) else {
+            let names: Vec<&str> = mons.iter().map(|m| m.name.as_str()).collect();
+            return Err(WallpaperError::Unsupported(format!(
+                "no hay ninguna pantalla «{name}» (hay: {})",
+                if names.is_empty() { "ninguna detectada; ¿está kscreen-doctor?".to_string() } else { names.join(", ") }
+            )));
+        };
+        let body = match wallpaper.kind {
+            WallpaperKind::Video => video_body(&wallpaper.path),
+            WallpaperKind::Static => image_body(&wallpaper.path),
+        };
+        let script = format!(
+            "var n = 0; var ds = desktops();
+             for (var i = 0; i < ds.length; i++) {{
+               var d = ds[i];
+               if (d.screen < 0) continue;
+               var g = screenGeometry(d.screen);
+               if (g.x != {x} || g.y != {y}) continue;
+               {body}
+               n++;
+             }}
+             print('aplicados=' + n);",
+            x = m.x,
+            y = m.y
+        );
+        let out = self.evaluate_script_output(&script)?;
+        if out.contains("aplicados=0") {
+            return Err(WallpaperError::CommandFailed {
+                command: "evaluateScript".into(),
+                detail: format!("Plasma no tiene ningún escritorio en la pantalla {name}"),
+            });
+        }
+        Ok(())
+    }
+
     fn evaluate_script(&self, script: &str) -> Result<(), WallpaperError> {
         self.run_checked(
             "gdbus",
@@ -219,10 +295,10 @@ fn default_config_path() -> PathBuf {
     base.join("plasma-org.kde.plasma.desktop-appletsrc")
 }
 
-/// Script de Plasma que activa el plugin de vídeo con un único vídeo.
+/// Cuerpo de script (para un escritorio `d`) que activa el plugin de vídeo con un único vídeo.
 /// Los campos de cada entrada se copiaron de lo que Plasma escribió realmente.
 /// serde_json se encarga de escapar la ruta.
-fn video_script(path: &Path) -> String {
+fn video_body(path: &Path) -> String {
     let videos = json!([{
         "filename": format!("file://{}", path.display()),
         "enabled": true,
@@ -234,15 +310,61 @@ fn video_script(path: &Path) -> String {
         "dayNightPhase": 4
     }]);
     format!(
-        "var videos = {videos};\n\
-         var ds = desktops();\n\
+        "d.wallpaperPlugin = \"{VIDEO_PLUGIN_ID}\";
+           d.currentConfigGroup = [\"Wallpaper\", \"{VIDEO_PLUGIN_ID}\", \"General\"];
+           d.writeConfig(\"VideoUrls\", JSON.stringify({videos}));"
+    )
+}
+
+/// Cuerpo de script que pone una imagen (lo mismo que hace `plasma-apply-wallpaperimage`).
+fn image_body(path: &Path) -> String {
+    let url = serde_json::to_string(&format!("file://{}", path.display())).unwrap_or_default();
+    format!(
+        "d.wallpaperPlugin = \"{IMAGE_PLUGIN_ID}\";
+           d.currentConfigGroup = [\"Wallpaper\", \"{IMAGE_PLUGIN_ID}\", \"General\"];
+           d.writeConfig(\"Image\", {url});"
+    )
+}
+
+/// Script de Plasma que pone el vídeo en todos los escritorios.
+fn video_script(path: &Path) -> String {
+    format!(
+        "var ds = desktops();\n\
          for (var i = 0; i < ds.length; i++) {{\n\
            var d = ds[i];\n\
-           d.wallpaperPlugin = \"{VIDEO_PLUGIN_ID}\";\n\
-           d.currentConfigGroup = [\"Wallpaper\", \"{VIDEO_PLUGIN_ID}\", \"General\"];\n\
-           d.writeConfig(\"VideoUrls\", JSON.stringify(videos));\n\
-         }}\n"
+           {}\n\
+         }}\n",
+        video_body(path)
     )
+}
+
+/// `kscreen-doctor -j` → pantallas encendidas. Plasma numera sus pantallas por prioridad (1 = principal).
+fn parse_kscreen(text: &str) -> Vec<Monitor> {
+    let Ok(v) = serde_json::from_str::<Value>(text) else { return Vec::new() };
+    let mut out: Vec<(i64, Monitor)> = Vec::new();
+    for o in v.get("outputs").and_then(Value::as_array).into_iter().flatten() {
+        if o.get("enabled").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        let num = |v: Option<&Value>| v.and_then(Value::as_f64).unwrap_or(0.0);
+        let scale = num(o.get("scale")).max(0.1);
+        let (mut w, mut h) = (num(o.pointer("/size/width")) / scale, num(o.pointer("/size/height")) / scale);
+        // rotation: 1 normal, 2 izquierda, 4 invertida, 8 derecha
+        if matches!(o.get("rotation").and_then(Value::as_i64), Some(2 | 8)) {
+            std::mem::swap(&mut w, &mut h);
+        }
+        let prio = o.get("priority").and_then(Value::as_i64).unwrap_or(99);
+        out.push((prio, Monitor {
+            name: o.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+            x: num(o.pointer("/pos/x")) as i32,
+            y: num(o.pointer("/pos/y")) as i32,
+            width: w.round() as u32,
+            height: h.round() as u32,
+            primary: prio == 1,
+        }));
+    }
+    out.sort_by_key(|(p, _)| *p);
+    out.into_iter().map(|(_, m)| m).collect()
 }
 
 impl<R: CommandRunner> WallpaperBackend for PlasmaBackend<R> {
@@ -254,29 +376,29 @@ impl<R: CommandRunner> WallpaperBackend for PlasmaBackend<R> {
         BackendCapabilities {
             static_wallpapers: true,
             video_wallpapers: self.video_plugin_installed(),
-            per_monitor: false, // los scripts actuales aplican a todos los escritorios
+            per_monitor: true,
             pause_video: false,
         }
     }
 
+    fn monitors(&self) -> Vec<Monitor> {
+        PlasmaBackend::monitors(self)
+    }
+
     fn apply(&self, wallpaper: &Wallpaper, monitor: Option<&str>) -> Result<(), WallpaperError> {
-        if monitor.is_some() {
-            return Err(WallpaperError::Unsupported(
-                "el backend Plasma actual no soporta fondos por monitor".into(),
-            ));
-        }
         if !wallpaper.path.is_file() {
             return Err(WallpaperError::NotFound(wallpaper.path.clone()));
         }
+        if wallpaper.kind == WallpaperKind::Video && !self.video_plugin_installed() {
+            return Err(WallpaperError::Unsupported(format!(
+                "falta el plugin de vídeo `{VIDEO_PLUGIN_ID}` (Smart Video Wallpaper Reborn)"
+            )));
+        }
+        if let Some(name) = monitor {
+            return self.apply_on_monitor(wallpaper, name);
+        }
         match wallpaper.kind {
-            WallpaperKind::Video => {
-                if !self.video_plugin_installed() {
-                    return Err(WallpaperError::Unsupported(format!(
-                        "falta el plugin de vídeo `{VIDEO_PLUGIN_ID}` (Smart Video Wallpaper Reborn)"
-                    )));
-                }
-                self.evaluate_script(&video_script(&wallpaper.path))
-            }
+            WallpaperKind::Video => self.evaluate_script(&video_script(&wallpaper.path)),
             WallpaperKind::Static => {
                 let path = wallpaper
                     .path
@@ -287,9 +409,11 @@ impl<R: CommandRunner> WallpaperBackend for PlasmaBackend<R> {
         }
     }
 
-    fn current(&self, _monitor: Option<&str>) -> Result<Option<Wallpaper>, WallpaperError> {
+    fn current(&self, monitor: Option<&str>) -> Result<Option<Wallpaper>, WallpaperError> {
+        // Número de pantalla de Plasma = prioridad − 1 (la lista ya viene ordenada por prioridad).
+        let screen = monitor.and_then(|n| self.monitors().iter().position(|m| m.name == n)).map(|i| i as i64);
         match fs::read_to_string(&self.config_path) {
-            Ok(text) => Ok(parse_current(&text)),
+            Ok(text) => Ok(parse_current(&text, screen)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
@@ -299,6 +423,7 @@ impl<R: CommandRunner> WallpaperBackend for PlasmaBackend<R> {
 #[derive(Default)]
 struct Containment {
     plugin: Option<String>,
+    screen: Option<i64>,
     image: Option<String>,
     videos: Option<String>,
 }
@@ -326,9 +451,9 @@ fn classify(header: &str) -> Option<(String, Section)> {
     }
 }
 
-/// Determina el fondo activo. Plasma conserva la configuración de plugins que ya no
-/// están activos (p. ej. `Image=` con el vídeo activo), así que manda `wallpaperplugin=`.
-fn parse_current(text: &str) -> Option<Wallpaper> {
+/// Determina el fondo activo (de la pantalla `screen`, o el primero). Plasma conserva la configuración
+/// de plugins que ya no están activos (p. ej. `Image=` con el vídeo activo), así que manda `wallpaperplugin=`.
+fn parse_current(text: &str, screen: Option<i64>) -> Option<Wallpaper> {
     let mut order: Vec<String> = Vec::new();
     let mut map: HashMap<String, Containment> = HashMap::new();
     let mut cur: Option<(String, Section)> = None;
@@ -348,6 +473,8 @@ fn parse_current(text: &str) -> Option<Wallpaper> {
                 Section::Root => {
                     if let Some(v) = line.strip_prefix("wallpaperplugin=") {
                         c.plugin = Some(v.to_string());
+                    } else if let Some(v) = line.strip_prefix("lastScreen=") {
+                        c.screen = v.parse().ok();
                     }
                 }
                 Section::Image => {
@@ -364,11 +491,11 @@ fn parse_current(text: &str) -> Option<Wallpaper> {
         }
     }
 
-    // Primer contenedor de escritorio (los paneles no tienen wallpaperplugin).
+    // Primer contenedor de escritorio (los paneles no tienen wallpaperplugin) de esa pantalla.
     let chosen = order
         .iter()
         .filter_map(|id| map.get(id))
-        .find(|c| c.plugin.is_some())
+        .find(|c| c.plugin.is_some() && screen.is_none_or(|s| c.screen == Some(s)))
         .or_else(|| order.iter().filter_map(|id| map.get(id)).find(|c| c.image.is_some()))?;
 
     match chosen.plugin.as_deref() {
@@ -419,6 +546,8 @@ mod tests {
 
     struct Fake {
         result: Box<dyn Fn() -> io::Result<Output> + Send + Sync>,
+        /// Respuesta de `kscreen-doctor -j` (si no, la misma que el resto).
+        kscreen: Option<String>,
         calls: Mutex<Vec<(String, Vec<String>)>>,
     }
     impl Fake {
@@ -426,7 +555,7 @@ mod tests {
             Self::new(|| Ok(out(0, "", "")))
         }
         fn new(f: impl Fn() -> io::Result<Output> + Send + Sync + 'static) -> Self {
-            Self { result: Box::new(f), calls: Mutex::new(vec![]) }
+            Self { result: Box::new(f), kscreen: None, calls: Mutex::new(vec![]) }
         }
     }
     impl CommandRunner for &Fake {
@@ -435,6 +564,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((program.into(), args.iter().map(|s| s.to_string()).collect()));
+            if let (Some(k), "kscreen-doctor") = (&self.kscreen, program) {
+                return Ok(out(0, k, ""));
+            }
             (self.result)()
         }
     }
@@ -527,13 +659,60 @@ mod tests {
         let f = Fake::ok();
         let b = backend(&f, true, "r1");
         let p = file(&tmpdir("r1"), "a.png");
+        // kscreen-doctor no devuelve pantallas → «no hay ninguna pantalla DP-1».
         assert!(matches!(
             b.apply(&Wallpaper::from_path(&p).unwrap(), Some("DP-1")),
             Err(WallpaperError::Unsupported(_))
         ));
         let gone = Wallpaper { id: "g".into(), path: "/no/existe.png".into(), kind: WallpaperKind::Static };
         assert!(matches!(b.apply(&gone, None), Err(WallpaperError::NotFound(_))));
-        assert!(f.calls.lock().unwrap().is_empty());
+        assert!(f.calls.lock().unwrap().iter().all(|(p, _)| p == "kscreen-doctor"), "nada aplicado");
+    }
+
+    // Recorte de `kscreen-doctor -j` real (Plasma 6.7.5) + una segunda pantalla a la derecha con escala 1,5.
+    const KSCREEN: &str = r#"{"outputs":[
+        {"id":2,"name":"HDMI-A-1","enabled":true,"priority":2,"pos":{"x":1920,"y":0},"size":{"width":3840,"height":2160},"scale":1.5,"rotation":1},
+        {"id":1,"name":"eDP-1","enabled":true,"priority":1,"pos":{"x":0,"y":0},"size":{"width":1920,"height":1080},"scale":1,"rotation":1},
+        {"id":3,"name":"DP-2","enabled":false,"priority":0,"pos":{"x":0,"y":0},"size":{"width":800,"height":600},"scale":1,"rotation":1}]}"#;
+
+    #[test]
+    fn parses_kscreen_outputs_in_plasma_order() {
+        let m = parse_kscreen(KSCREEN);
+        assert_eq!(m.len(), 2, "la apagada no cuenta");
+        assert_eq!((m[0].name.as_str(), m[0].primary), ("eDP-1", true));
+        assert_eq!((m[1].name.as_str(), m[1].x, m[1].width, m[1].height), ("HDMI-A-1", 1920, 2560, 1440));
+    }
+
+    #[test]
+    fn applies_on_one_monitor_by_its_position() {
+        let mut f = Fake::new(|| Ok(out(0, "('aplicados=1',)", "")));
+        f.kscreen = Some(KSCREEN.into());
+        let p = file(&tmpdir("m1"), "b.png");
+        let w = Wallpaper::from_path(&p).unwrap();
+        backend(&f, true, "m1").apply(&w, Some("HDMI-A-1")).unwrap();
+        let calls = f.calls.lock().unwrap();
+        let (prog, args) = calls.last().unwrap();
+        assert_eq!(prog, "gdbus");
+        let script = args.last().unwrap();
+        assert!(script.contains("g.x != 1920 || g.y != 0"));
+        assert!(script.contains(&format!("\"file://{}\"", p.display())));
+        assert!(!script.contains("\\n"), "gdbus estropea los «\\n» del script");
+        drop(calls);
+
+        // Si Plasma no tiene escritorio en esa pantalla, es un error (no un éxito silencioso).
+        let mut g = Fake::new(|| Ok(out(0, "('aplicados=0',)", "")));
+        g.kscreen = Some(KSCREEN.into());
+        assert!(backend(&g, true, "m2").apply(&w, Some("eDP-1")).is_err());
+    }
+
+    #[test]
+    fn current_per_screen_uses_last_screen() {
+        let two = format!(
+            "{REAL}\n[Containments][7]\nlastScreen=1\nplugin=org.kde.plasma.folder\nwallpaperplugin=org.kde.image\n\n\
+             [Containments][7][Wallpaper][org.kde.image][General]\nImage=file:///x/Segunda.png\n"
+        );
+        assert_eq!(parse_current(&two, Some(1)).unwrap().path, PathBuf::from("/x/Segunda.png"));
+        assert_eq!(parse_current(&two, Some(0)).unwrap().kind, WallpaperKind::Video);
     }
 
     #[test]
@@ -567,7 +746,7 @@ mod tests {
     #[test]
     fn current_prefers_active_plugin() {
         // Con el plugin de vídeo activo, manda el vídeo aunque quede `Image=` guardado.
-        let w = parse_current(REAL).unwrap();
+        let w = parse_current(REAL, None).unwrap();
         assert_eq!(w.kind, WallpaperKind::Video);
         assert_eq!(
             w.path,
@@ -579,7 +758,7 @@ mod tests {
             "wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn",
             "wallpaperplugin=org.kde.image",
         );
-        let w = parse_current(&img).unwrap();
+        let w = parse_current(&img, None).unwrap();
         assert_eq!(w.kind, WallpaperKind::Static);
         assert_eq!(w.path, PathBuf::from("/home/usuario/Pictures/Wallpapers/imagen-de-prueba.png"));
     }
@@ -591,14 +770,14 @@ mod tests {
             REAL.lines().find(|l| l.starts_with("VideoUrls=")).unwrap(),
             "VideoUrls=",
         );
-        assert_eq!(parse_current(&empty), None);
+        assert_eq!(parse_current(&empty, None), None);
         // Sin `wallpaperplugin`, se usa Image= (configuración antigua)
         let old = "[Containments][1][Wallpaper][org.kde.image][General]\nImage=file:///x/Gato%20Negro.png\n";
-        assert_eq!(parse_current(old).unwrap().path, PathBuf::from("/x/Gato Negro.png"));
+        assert_eq!(parse_current(old, None).unwrap().path, PathBuf::from("/x/Gato Negro.png"));
         // Entradas desactivadas se ignoran
         let off = REAL.replace("\"enabled\":true", "\"enabled\":false");
-        assert_eq!(parse_current(&off), None);
-        assert_eq!(parse_current(""), None);
+        assert_eq!(parse_current(&off, None), None);
+        assert_eq!(parse_current("", None), None);
     }
 
     #[test]

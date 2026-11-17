@@ -1,7 +1,7 @@
 //! Orquestación: une biblioteca + backend. Sin dependencias de Qt ni del compositor.
 
 use nekowall_backend::{
-    BackendCapabilities, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
+    BackendCapabilities, Monitor, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
 };
 use nekowall_library::{Counts, Filter, Library, LibraryError};
 use std::fmt;
@@ -47,6 +47,16 @@ pub struct Status {
     pub capabilities: BackendCapabilities,
     pub current: Option<Wallpaper>,
     pub counts: Counts,
+    /// Cada pantalla con su fondo (vacío si el backend no distingue pantallas).
+    pub monitors: Vec<(Monitor, Option<Wallpaper>)>,
+}
+
+/// Claves de estado de una pantalla («current_path@HDMI-1»); sin pantalla, las de siempre.
+fn key(base: &str, monitor: Option<&str>) -> String {
+    match monitor {
+        Some(m) => format!("{base}@{m}"),
+        None => base.to_string(),
+    }
 }
 
 pub struct Service {
@@ -68,20 +78,33 @@ impl Service {
         self.backend.capabilities()
     }
 
-    /// Aplica un fondo registrando el anterior para poder restaurarlo.
+    /// Aplica un fondo en todas las pantallas registrando el anterior para poder restaurarlo.
     /// El estado solo se actualiza si el backend tuvo éxito.
     pub fn apply(&self, wallpaper: &Wallpaper) -> Result<(), ServiceError> {
-        let before = self.backend.current(None).ok().flatten();
-        self.backend.apply(wallpaper, None)?;
+        self.apply_on(wallpaper, None)
+    }
+
+    /// Igual, en una pantalla (`Some(nombre)`) o en todas (`None`).
+    pub fn apply_on(&self, wallpaper: &Wallpaper, monitor: Option<&str>) -> Result<(), ServiceError> {
+        let before = self.backend.current(monitor).ok().flatten();
+        self.backend.apply(wallpaper, monitor)?;
         if let Some(prev) = before.filter(|p| p.path != wallpaper.path) {
-            self.library.set_state(KEY_PREVIOUS, &prev.path.to_string_lossy())?;
+            self.library.set_state(&key(KEY_PREVIOUS, monitor), &prev.path.to_string_lossy())?;
         }
-        self.library.set_state(KEY_CURRENT, &wallpaper.path.to_string_lossy())?;
+        self.library.set_state(&key(KEY_CURRENT, monitor), &wallpaper.path.to_string_lossy())?;
+        if monitor.is_some() {
+            // «Actual» global = último aplicado en cualquier pantalla.
+            self.library.set_state(KEY_CURRENT, &wallpaper.path.to_string_lossy())?;
+        }
         Ok(())
     }
 
     /// Acepta un id de la biblioteca o una ruta (que se indexa si hace falta).
     pub fn apply_target(&mut self, target: &str) -> Result<Wallpaper, ServiceError> {
+        self.apply_target_on(target, None)
+    }
+
+    pub fn apply_target_on(&mut self, target: &str, monitor: Option<&str>) -> Result<Wallpaper, ServiceError> {
         let wp = if let Some(e) = self.library.get(target)? {
             e.wallpaper
         } else if Path::new(target).exists() {
@@ -94,19 +117,20 @@ impl Service {
         } else {
             return Err(ServiceError::NotInLibrary(target.into()));
         };
-        self.apply(&wp)?;
+        self.apply_on(&wp, monitor)?;
         Ok(wp)
     }
 
     pub fn next(&self) -> Result<Wallpaper, ServiceError> {
-        self.step(1)
+        self.step(1, None)
     }
 
     pub fn previous(&self) -> Result<Wallpaper, ServiceError> {
-        self.step(-1)
+        self.step(-1, None)
     }
 
-    fn step(&self, delta: isize) -> Result<Wallpaper, ServiceError> {
+    /// Siguiente (+1) o anterior (−1) en una pantalla o en todas.
+    pub fn step(&self, delta: isize, monitor: Option<&str>) -> Result<Wallpaper, ServiceError> {
         let kind = (!self.capabilities().video_wallpapers).then_some(WallpaperKind::Static);
         let candidates: Vec<Wallpaper> = self
             .library
@@ -119,9 +143,9 @@ impl Service {
             return Err(ServiceError::NoCandidates);
         }
 
-        let current = match self.library.state(KEY_CURRENT)? {
+        let current = match self.library.state(&key(KEY_CURRENT, monitor))? {
             Some(p) => Some(p),
-            None => self.backend.current(None).ok().flatten().map(|w| w.path.to_string_lossy().into_owned()),
+            None => self.backend.current(monitor).ok().flatten().map(|w| w.path.to_string_lossy().into_owned()),
         };
         let n = candidates.len() as isize;
         let idx = current
@@ -130,16 +154,24 @@ impl Service {
             .unwrap_or(if delta > 0 { 0 } else { n - 1 });
 
         let wp = candidates[idx as usize].clone();
-        self.apply(&wp)?;
+        self.apply_on(&wp, monitor)?;
         Ok(wp)
     }
 
     /// Vuelve al fondo anterior (y el actual pasa a ser "anterior": alterna).
     pub fn restore_previous(&self) -> Result<Wallpaper, ServiceError> {
-        let prev = self.library.state(KEY_PREVIOUS)?.ok_or(ServiceError::NoPrevious)?;
+        self.restore_previous_on(None)
+    }
+
+    pub fn restore_previous_on(&self, monitor: Option<&str>) -> Result<Wallpaper, ServiceError> {
+        let prev = self.library.state(&key(KEY_PREVIOUS, monitor))?.ok_or(ServiceError::NoPrevious)?;
         let wp = Wallpaper::from_path(Path::new(&prev)).ok_or(ServiceError::NoPrevious)?;
-        self.apply(&wp)?;
+        self.apply_on(&wp, monitor)?;
         Ok(wp)
+    }
+
+    pub fn monitors(&self) -> Vec<Monitor> {
+        self.backend.monitors()
     }
 
     pub fn status(&self) -> Result<Status, ServiceError> {
@@ -148,6 +180,15 @@ impl Service {
             capabilities: self.backend.capabilities(),
             current: self.backend.current(None)?,
             counts: self.library.counts()?,
+            monitors: self
+                .backend
+                .monitors()
+                .into_iter()
+                .map(|m| {
+                    let cur = self.backend.current(Some(&m.name)).ok().flatten();
+                    (m, cur)
+                })
+                .collect(),
         })
     }
 }

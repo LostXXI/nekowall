@@ -5,6 +5,7 @@
 #include <functional>
 
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QObject>
 #include <QTimer>
 #include <QString>
@@ -16,7 +17,15 @@ class QProcess;
 class Bridge : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList wallpapers READ wallpapers NOTIFY wallpapersChanged)
+    // Fondo actual de la pantalla de destino (o el de la principal).
     Q_PROPERTY(QString currentId READ currentId NOTIFY statusChanged)
+    // Varias pantallas. target: "" = la pantalla de esta ventana (donde está el ratón), "*" = todas,
+    // o el nombre de una pantalla. hostScreen: pantalla en la que está la ventana (lo pone el QML).
+    Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
+    Q_PROPERTY(bool multiScreen READ multiScreen NOTIFY screensChanged)
+    Q_PROPERTY(QString target READ target WRITE setTarget NOTIFY targetChanged)
+    Q_PROPERTY(QString hostScreen READ hostScreen WRITE setHostScreen NOTIFY targetChanged)
+    Q_PROPERTY(QString targetLabel READ targetLabel NOTIFY targetChanged)
     Q_PROPERTY(QString backend READ backend NOTIFY statusChanged)
     Q_PROPERTY(bool videoSupported READ videoSupported NOTIFY statusChanged)
     Q_PROPERTY(bool loaded READ loaded NOTIFY wallpapersChanged)
@@ -57,7 +66,20 @@ public:
 
     QVariantList wallpapers() const { return m_wallpapers; }
     QString defaultFolder() const { return m_defaultFolder; }
-    QString currentId() const { return m_currentId; }
+    QString currentId() const;
+    QVariantList screens() const;
+    bool multiScreen() const;
+    QString target() const { return m_target; }
+    void setTarget(const QString &t);
+    QString hostScreen() const { return m_hostScreen; }
+    void setHostScreen(const QString &s);
+    QString targetLabel() const;
+    // Pantalla en la que se aplicará: "" = todas.
+    QString resolvedScreen() const;
+    // Siguiente destino: cada pantalla y luego «todas» (tecla P del selector).
+    Q_INVOKABLE void cycleTarget();
+    // Índice (en Qt.application.screens) de la pantalla donde está el ratón; -1 si no se sabe.
+    Q_INVOKABLE int cursorScreenIndex() const;
     QString backend() const { return m_backend; }
     bool videoSupported() const { return m_video; }
     bool loaded() const { return m_loaded; }
@@ -135,6 +157,8 @@ signals:
     void taskChanged();
     void mascotChanged();
     void defaultFolderChanged();
+    void screensChanged();
+    void targetChanged();
     // Vídeos más grandes que la pantalla encontrados al importar (la UI pregunta qué hacer).
     void largeVideosFound(const QVariantList &videos, const QVariantList &paths);
     // Un vídeo de la biblioteca que conviene optimizar (desde el menú contextual).
@@ -164,6 +188,10 @@ private:
     bool m_syncAgain = false;
     int m_lastMissing = -1;
     QString m_defaultFolder;
+    QString m_target;
+    QString m_hostScreen;
+    bool m_perMonitor = false;
+    QHash<QString, QString> m_currentByScreen;   // pantalla → id del fondo
     QVariantList m_wallpapers;
     QString m_currentId;
     QString m_backend;

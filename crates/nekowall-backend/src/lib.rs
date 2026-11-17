@@ -110,11 +110,28 @@ impl From<io::Error> for WallpaperError {
     }
 }
 
+/// Una pantalla. `name` es el nombre del conector (eDP-1, HDMI-1…), el mismo que da Qt (`QScreen::name`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Monitor {
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
 pub trait WallpaperBackend: Send + Sync {
     fn name(&self) -> &'static str;
     fn capabilities(&self) -> BackendCapabilities;
+    /// `monitor`: `None` = todas las pantallas; `Some(nombre)` = solo esa.
     fn apply(&self, wallpaper: &Wallpaper, monitor: Option<&str>) -> Result<(), WallpaperError>;
+    /// `None` = el de la pantalla principal.
     fn current(&self, monitor: Option<&str>) -> Result<Option<Wallpaper>, WallpaperError>;
+    /// Pantallas conectadas (vacío si el backend no lo sabe).
+    fn monitors(&self) -> Vec<Monitor> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

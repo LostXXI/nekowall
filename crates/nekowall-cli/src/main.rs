@@ -19,9 +19,13 @@ nekowall — gestor de fondos de pantalla (prototipo)
 USO:
   nekowall import <ruta>...            Indexa archivos o carpetas (sin copiar)
   nekowall list [--video|--static] [--favorites] [--search TEXTO]
-  nekowall apply <id|ruta>             Aplica un fondo
-  nekowall next | previous             Siguiente / anterior de la biblioteca
-  nekowall restore                     Vuelve al fondo anterior
+  nekowall apply <id|ruta> [--monitor PANTALLA]
+                                       Aplica un fondo (en todas las pantallas o en una)
+  nekowall next | previous [--monitor PANTALLA]
+                                       Siguiente / anterior de la biblioteca
+  nekowall restore [--monitor PANTALLA]
+                                       Vuelve al fondo anterior
+  nekowall monitors                    Pantallas conectadas y el fondo de cada una
   nekowall favorite <id> [--off]       Marca o desmarca favorito
   nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
   nekowall sync                        Busca fondos nuevos en las carpetas añadidas (y crea
@@ -42,7 +46,7 @@ USO:
   nekowall peek                        MATE: muestra u oculta los iconos del escritorio con un vídeo de fondo
   nekowall help
 
-`list`, `status`, `import`, `sync`, `folders` y `video-settings` aceptan --json (formato para la interfaz gráfica).
+`list`, `status`, `import`, `sync`, `folders`, `monitors` y `video-settings` aceptan --json (formato para la interfaz gráfica).
 La interfaz gráfica es el programa aparte `nekowall-gui` (carpeta app/).
 Variables: NEKOWALL_DB para elegir la ruta de la base de datos.
 ";
@@ -228,6 +232,17 @@ fn db_path() -> PathBuf {
     base.join("nekowall/library.db")
 }
 
+fn on_monitor(m: Option<&str>) -> String {
+    m.map(|m| format!(" (pantalla {m})")).unwrap_or_default()
+}
+
+fn monitor_json(m: &nekowall_backend::Monitor, w: Option<&nekowall_backend::Wallpaper>) -> serde_json::Value {
+    serde_json::json!({
+        "name": m.name, "x": m.x, "y": m.y, "width": m.width, "height": m.height, "primary": m.primary,
+        "current": w.map(|w| serde_json::json!({ "id": w.id, "path": w.path.to_string_lossy(), "kind": w.kind.as_str() })),
+    })
+}
+
 /// Carpeta de imágenes del usuario (XDG_PICTURES_DIR de ~/.config/user-dirs.dirs; si no, ~/Pictures).
 fn pictures_dir() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
@@ -295,8 +310,8 @@ fn run(args: &[String]) -> Result<(), String> {
 
     // Proceso interno que reproduce y pausa el vídeo de fondo en MATE (lo lanza `apply`).
     if cmd == "_mate-video" {
-        let path = args.get(1).ok_or("falta la ruta del vídeo")?;
-        return nekowall_mate::video::run_daemon(Path::new(path));
+        // Sin argumento: lee los vídeos de cada pantalla. Con ruta: autostart de versiones anteriores.
+        return nekowall_mate::video::run_daemon(args.get(1).map(Path::new));
     }
 
     // MATE: alterna «mostrar escritorio» (oculta y pausa el vídeo de fondo para ver los iconos de Caja).
@@ -376,13 +391,40 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         "apply" => {
-            let t = rest.first().ok_or("falta el id o la ruta")?;
-            let w = svc.apply_target(t).map_err(|e| e.to_string())?;
-            println!("Aplicado: {}", w.path.display());
+            let t = rest.iter().find(|a| !a.starts_with("--") && opt_value_owner(rest, a)).ok_or("falta el id o la ruta")?;
+            let w = svc.apply_target_on(t, opt(rest, "--monitor")).map_err(|e| e.to_string())?;
+            println!("Aplicado: {}{}", w.path.display(), on_monitor(opt(rest, "--monitor")));
         }
-        "next" => println!("Aplicado: {}", svc.next().map_err(|e| e.to_string())?.path.display()),
-        "previous" => println!("Aplicado: {}", svc.previous().map_err(|e| e.to_string())?.path.display()),
-        "restore" => println!("Restaurado: {}", svc.restore_previous().map_err(|e| e.to_string())?.path.display()),
+        "next" | "previous" => {
+            let m = opt(rest, "--monitor");
+            let w = svc.step(if cmd == "next" { 1 } else { -1 }, m).map_err(|e| e.to_string())?;
+            println!("Aplicado: {}{}", w.path.display(), on_monitor(m));
+        }
+        "restore" => {
+            let m = opt(rest, "--monitor");
+            let w = svc.restore_previous_on(m).map_err(|e| e.to_string())?;
+            println!("Restaurado: {}{}", w.path.display(), on_monitor(m));
+        }
+        "monitors" => {
+            let s = svc.status().map_err(|e| e.to_string())?;
+            if json {
+                let arr: Vec<_> = s.monitors.iter().map(|(m, w)| monitor_json(m, w.as_ref())).collect();
+                println!("{}", serde_json::Value::Array(arr));
+                return Ok(());
+            }
+            if s.monitors.is_empty() {
+                println!("Este escritorio no informa de sus pantallas.");
+            }
+            for (m, w) in &s.monitors {
+                println!(
+                    "{}{}  {}×{} en ({}, {})  {}",
+                    m.name,
+                    if m.primary { " (principal)" } else { "" },
+                    m.width, m.height, m.x, m.y,
+                    w.as_ref().map(|w| w.path.display().to_string()).unwrap_or_else(|| "—".into())
+                );
+            }
+        }
         "favorite" => {
             let id = rest.first().ok_or("falta el id")?;
             let on = !rest.iter().any(|a| a == "--off");
@@ -448,6 +490,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         "per_monitor": c.per_monitor, "pause": c.pause_video,
                     },
                     "current": cur,
+                    "monitors": s.monitors.iter().map(|(m, w)| monitor_json(m, w.as_ref())).collect::<Vec<_>>(),
                     "counts": { "total": s.counts.total, "favorites": s.counts.favorites, "missing": missing },
                 });
                 println!("{v}");

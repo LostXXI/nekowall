@@ -21,14 +21,26 @@ Window {
     flags: Bridge.wayland ? Qt.FramelessWindowHint : (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
 
 
+    // La pantalla donde está la ventana es el destino por defecto («donde está el ratón»).
+    onScreenChanged: Bridge.hostScreen = screen ? screen.name : ""
+
     Component.onCompleted: {
         if (Bridge.wayland) {
-            show()
+            show()   // con layer-shell, KWin la pone en la pantalla activa (ver HudWayland.qml)
         } else {
+            // X11: abrir en la pantalla donde está el ratón.
+            const i = Bridge.cursorScreenIndex()
+            if (i >= 0) {
+                const s = Qt.application.screens[i]
+                root.screen = s
+                root.x = s.virtualX
+                root.y = s.virtualY
+            }
             showFullScreen()
             raise()
             requestActivate()          // el teclado debe llegar al HUD en X11
         }
+        Bridge.hostScreen = root.screen ? root.screen.name : ""
     }
 
     readonly property bool reduced: Bridge.reducedMotion
@@ -144,7 +156,8 @@ Window {
         function onStatusChanged() { if (!root.userMoved) root.focusCurrent() }
         function onApplied(ok, id, msg) {
             if (ok) {
-                root.showMessage("Fondo aplicado ✓", false)
+                root.showMessage(Bridge.multiScreen ? "Fondo aplicado en " + Bridge.targetLabel.toLowerCase() + " ✓"
+                                                    : "Fondo aplicado ✓", false)
                 closeTimer.start()
             } else {
                 root.showMessage("No se pudo aplicar: " + msg, true)
@@ -189,6 +202,8 @@ Window {
             if (e.key === Qt.Key_F && root.selected) {
                 Bridge.setFavorite(root.selected.id, !root.selected.favorite)
                 e.accepted = true
+            } else if (e.key === Qt.Key_P && Bridge.multiScreen) {
+                Bridge.cycleTarget(); e.accepted = true
             } else if (e.key === Qt.Key_Home) {
                 root.userMoved = true; root.activeView.currentIndex = 0; e.accepted = true
             } else if (e.key === Qt.Key_End) {
@@ -391,6 +406,32 @@ Window {
             }
         }
 
+        // ── Pantalla de destino (arriba a la derecha; solo con varias pantallas) ──
+        Skeuo {
+            id: screenPlate
+            z: 5
+            visible: Bridge.multiScreen
+            anchors { right: parent.right; top: parent.top; margins: parent.height * 0.05 }
+            height: 40
+            width: screenText.implicitWidth + 32
+            radius: height / 2
+            lit: true
+            litColor: root.accent
+            Text {
+                id: screenText
+                anchors.centerIn: parent
+                color: screenPlate.textColor
+                style: Text.Raised
+                styleColor: screenPlate.textShadow
+                font.pixelSize: 16
+                font.weight: Font.Bold
+                text: "🖥  Aplicar en: " + Bridge.targetLabel + "   P"
+            }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Bridge.cycleTarget() }
+            Accessible.role: Accessible.Button
+            Accessible.name: "Pantalla de destino: " + Bridge.targetLabel + ". Pulsa P para cambiarla."
+        }
+
         // ── Datos del fondo seleccionado (abajo, sobre la ayuda de teclado) ───
         Glass {
             id: info
@@ -480,7 +521,7 @@ Window {
             spacing: 22
             Repeater {
                 model: [["← →", "Vídeos"], ["↑ ↓", "Imágenes"], ["Tab", "Cambiar"], ["Enter", "Aplicar"],
-                        ["F", "Favorito"], ["Esc", "Cerrar"]]
+                        ["F", "Favorito"]].concat(Bridge.multiScreen ? [["P", "Pantalla"]] : []).concat([["Esc", "Cerrar"]])
                 Row {
                     spacing: 8
                     Skeuo {                  // tecla física (como las teclas de atajo de SkeuoCord)

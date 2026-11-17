@@ -10,6 +10,12 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
 - **Biblioteca**: búsqueda, filtros (animados / estáticos / favoritos), orden, miniaturas en caché,
   importar archivos o carpetas (también arrastrando), quitar con «deshacer». Los archivos **no se copian**
   ni se modifican: se indexan donde están.
+- **Varias pantallas**: cada pantalla tiene su fondo. Por defecto se aplica en la pantalla de la ventana
+  (el selector se abre en la pantalla del ratón); la tecla **P** del selector o la lista «Esta pantalla /
+  Pantalla N / Todas» de la biblioteca eligen otra. En MATE se compone una imagen para todo el escritorio
+  (Caja solo admite una) y hay un reproductor de vídeo por pantalla, cada uno con su propia pausa. En KDE
+  se cambia el escritorio de Plasma de esa pantalla. *Probado con dos pantallas solo en MATE (máquina
+  virtual); en KDE, con una sola.*
 - **Carpetas vigiladas**: las carpetas añadidas se revisan al abrir NekoWall y, mientras está abierto, al
   cambiar: lo que copies aparece solo y lo que borres desaparece. Lo que quitas a mano no vuelve.
 - **Carpeta propia**: `nekowallpapers` dentro de la carpeta de Imágenes (`XDG_PICTURES_DIR`, normalmente
@@ -59,7 +65,7 @@ Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
-    ffmpeg6 glib mpv xwinwrap xprop xdotool
+    ffmpeg6 glib mpv xwinwrap xprop xdotool xrandr
 ```
 
 (En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
@@ -153,8 +159,9 @@ cuándo se pausa el vídeo, qué hacer con vídeos grandes y la ilustración del
 ```text
 nekowall import <ruta>...            Indexa archivos o carpetas (sin copiar)
 nekowall list [--video|--static] [--favorites] [--search TEXTO] [--json]
-nekowall apply <id|ruta>             Aplica un fondo
-nekowall next | previous | restore   Siguiente / anterior / volver al fondo anterior
+nekowall apply <id|ruta> [--monitor PANTALLA]   Aplica un fondo (en todas las pantallas o en una)
+nekowall monitors                    Pantallas conectadas y el fondo de cada una
+nekowall next | previous | restore [--monitor PANTALLA]   Siguiente / anterior / volver al anterior
 nekowall favorite <id> [--off]       Marca o desmarca favorito
 nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
 nekowall sync                        Busca fondos nuevos (o borrados) en las carpetas añadidas
@@ -176,7 +183,7 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
 - En MATE, con un vídeo de fondo los iconos del escritorio quedan tapados (funcionan, pero no se ven):
   Meta+Alt+D los muestra.
 - En X11 sin compositor con desenfoque el selector usa un fondo oscuro en lugar de cristal.
-- Un solo monitor: el mismo fondo se aplica a todos los escritorios.
+- Varias pantallas en KDE: sin probar con dos pantallas reales.
 - En KDE, los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
 
 ## Licencia

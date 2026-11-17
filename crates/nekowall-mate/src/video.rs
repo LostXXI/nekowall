@@ -6,10 +6,14 @@
 //! vean. Caja no puede ser transparente (copia el fondo estático bajo los iconos), por eso los iconos
 //! quedan tapados; `nekowall peek` (atajo Meta+Alt+D) oculta y pausa el vídeo para verlos.
 //!
-//! Un proceso propio (`nekowall _mate-video <ruta>`) vigila esa reproducción: pausa el vídeo según las
-//! ventanas (mismos modos que el plugin de Plasma) y la batería, hablando con mpv por su socket IPC.
-//! Probado en neko-void MATE dentro de una VM (2026-11-15).
+//! Un proceso propio (`nekowall _mate-video`) lleva un reproductor (xwinwrap+mpv) por cada pantalla que
+//! tiene un vídeo asignado (`mon.<pantalla>=<ruta>` en mate.conf): los crea, cambia o cierra cuando
+//! cambia ese archivo, y pausa cada vídeo según las ventanas de SU pantalla y la batería, hablando con
+//! cada mpv por su socket IPC. Probado en neko-void MATE dentro de una VM (2026-11-15; varias
+//! pantallas 2026-11-16).
 
+use nekowall_backend::{Monitor, WallpaperKind};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -33,12 +37,21 @@ impl Default for MateVideoSettings {
 
 // ── Rutas y estado ──────────────────────────────────────────────────────────
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .unwrap_or_else(|| PathBuf::from("."))
         .join("nekowall")
+}
+
+pub(crate) fn cache_dir() -> Option<PathBuf> {
+    let d = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?
+        .join("nekowall");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
 }
 
 fn runtime_dir() -> PathBuf {
@@ -52,8 +65,10 @@ fn state_file() -> PathBuf {
     config_dir().join("mate.conf")
 }
 
-pub fn mpv_socket() -> PathBuf {
-    runtime_dir().join("mpv.sock")
+/// Socket IPC del mpv de una pantalla.
+fn mpv_socket(monitor: &str) -> PathBuf {
+    let safe: String = monitor.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+    runtime_dir().join(format!("mpv-{safe}.sock"))
 }
 
 fn pid_file() -> PathBuf {
@@ -79,14 +94,17 @@ pub fn toggle_peek() -> Result<bool, String> {
     }
 }
 
-/// Fotograma del vídeo (segundo 1, a tamaño completo) en ~/.cache/nekowall/mate-frame.jpg.
+/// Fotograma del vídeo (segundo 1, a tamaño completo) en ~/.cache/nekowall/frame-<id>.jpg; se reutiliza
+/// mientras sea más reciente que el vídeo. Es lo que Caja muestra debajo (y al «mostrar escritorio»).
 pub fn still_frame(video: &Path) -> Option<PathBuf> {
-    let dir = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?
-        .join("nekowall");
-    std::fs::create_dir_all(&dir).ok()?;
-    let out = dir.join("mate-frame.jpg");
+    let out = cache_dir()?.join(format!("frame-{}.jpg", nekowall_backend::id_for_path(video)));
+    let fresh = |o: &Path| {
+        let (Ok(a), Ok(b)) = (std::fs::metadata(o), std::fs::metadata(video)) else { return false };
+        a.len() > 0 && matches!((a.modified(), b.modified()), (Ok(ta), Ok(tb)) if ta >= tb)
+    };
+    if fresh(&out) {
+        return Some(out);
+    }
     for seek in ["1", "0"] {
         let ok = Command::new("ffmpeg")
             .args(["-v", "error", "-y", "-nostdin", "-ss", seek, "-i"])
@@ -107,13 +125,27 @@ fn autostart_file() -> PathBuf {
     config_dir().parent().unwrap_or(Path::new(".")).join("autostart/nekowall-video.desktop")
 }
 
-/// Estado persistente sencillo «clave=valor» (vídeo actual, ajustes, iconos de Caja guardados).
-fn read_state() -> Vec<(String, String)> {
-    std::fs::read_to_string(state_file())
+/// Estado persistente sencillo «clave=valor» (fondo de cada pantalla, ajustes, iconos de Caja guardados).
+/// `dir` permite a los tests usar una carpeta propia.
+pub(crate) fn read_state_in(dir: &Path) -> Vec<(String, String)> {
+    std::fs::read_to_string(dir.join("mate.conf"))
         .unwrap_or_default()
         .lines()
         .filter_map(|l| l.split_once('=').map(|(k, v)| (k.trim().to_string(), v.to_string())))
         .collect()
+}
+
+pub(crate) fn write_state_in(dir: &Path, st: &[(String, String)]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let text: String = st.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+    // Escritura atómica: el vigilante lee este archivo mientras tanto.
+    let tmp = dir.join(".mate.conf.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(tmp, dir.join("mate.conf"))
+}
+
+fn read_state() -> Vec<(String, String)> {
+    read_state_in(&config_dir())
 }
 
 fn get_state(key: &str) -> Option<String> {
@@ -125,9 +157,29 @@ fn set_state(key: &str, value: Option<&str>) -> std::io::Result<()> {
     if let Some(v) = value {
         st.push((key.to_string(), v.to_string()));
     }
-    std::fs::create_dir_all(config_dir())?;
-    let text: String = st.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
-    std::fs::write(state_file(), text)
+    write_state_in(&config_dir(), &st)
+}
+
+/// Fondo asignado a cada pantalla (`mon.<pantalla>=<ruta>`).
+pub(crate) fn assignments_in(dir: &Path) -> BTreeMap<String, PathBuf> {
+    read_state_in(dir)
+        .into_iter()
+        .filter_map(|(k, v)| k.strip_prefix("mon.").map(|m| (m.to_string(), PathBuf::from(v))))
+        .collect()
+}
+
+pub(crate) fn save_assignments_in(dir: &Path, a: &BTreeMap<String, PathBuf>) -> std::io::Result<()> {
+    let mut st: Vec<_> = read_state_in(dir).into_iter().filter(|(k, _)| !k.starts_with("mon.") && k != "video").collect();
+    st.extend(a.iter().map(|(m, p)| (format!("mon.{m}"), p.to_string_lossy().into_owned())));
+    write_state_in(dir, &st)
+}
+
+/// Pantallas con un vídeo asignado.
+fn video_assignments() -> BTreeMap<String, PathBuf> {
+    assignments_in(&config_dir())
+        .into_iter()
+        .filter(|(_, p)| WallpaperKind::from_path(p) == Some(WallpaperKind::Video))
+        .collect()
 }
 
 pub fn load_settings() -> MateVideoSettings {
@@ -145,14 +197,14 @@ pub fn save_settings(s: &MateVideoSettings) -> std::io::Result<()> {
     set_state("battery_level", Some(&s.battery_level.to_string()))
 }
 
-/// Vídeo aplicado actualmente, si su reproducción sigue viva.
-pub fn current_video() -> Option<PathBuf> {
-    let p = get_state("video")?;
-    if running_pid().is_some() { Some(PathBuf::from(p)) } else { None }
+/// ¿Está en marcha el vigilante de los vídeos?
+pub fn running() -> bool {
+    running_pid().is_some()
 }
 
-pub fn remember_video(path: Option<&Path>) -> std::io::Result<()> {
-    set_state("video", path.map(|p| p.to_string_lossy()).as_deref())
+/// Vídeo de las versiones de una sola pantalla (`video=`), para migrar.
+pub(crate) fn legacy_video_in(dir: &Path) -> Option<PathBuf> {
+    read_state_in(dir).into_iter().find(|(k, _)| k == "video").map(|(_, v)| PathBuf::from(v))
 }
 
 /// Valor guardado de `show-desktop-icons` (y lo olvida).
@@ -168,7 +220,7 @@ fn running_pid() -> Option<i32> {
     let pid: i32 = std::fs::read_to_string(pid_file()).ok()?.trim().parse().ok()?;
     // ¿sigue vivo y es nuestro? (/proc/<pid>/cmdline contiene «_mate-video»)
     let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    String::from_utf8_lossy(&cmd).contains("_mate-video").then_some(pid)
+    (String::from_utf8_lossy(&cmd).split('\0').nth(1) == Some("_mate-video")).then_some(pid)
 }
 
 /// Detiene la reproducción (el proceso vigilante y, con él, xwinwrap y mpv).
@@ -186,7 +238,8 @@ fn processes() -> Vec<(i32, i32, u32, String)> {
             .ok()
             .and_then(|st| st.lines().find(|l| l.starts_with("Uid:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
             .unwrap_or(u32::MAX);
-        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).map(|c| String::from_utf8_lossy(&c).replace('\0', " ")).unwrap_or_default();
+        // Argumentos separados por '\0' (tal cual en /proc), para comparar argumentos exactos.
+        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).map(|c| String::from_utf8_lossy(&c).into_owned()).unwrap_or_default();
         out.push((pid, ppid, uid, cmd));
     }
     out
@@ -207,7 +260,9 @@ pub fn stop() {
     let uid = my_uid();
     let mut targets: Vec<i32> = procs
         .iter()
-        .filter(|(pid, _, u, cmd)| *u == uid && *pid != me && cmd.contains(" _mate-video "))
+        // Solo el vigilante de verdad: su PRIMER argumento es «_mate-video» (no cualquier proceso que
+        // mencione ese texto, como un `pgrep -f _mate-video` en una terminal).
+        .filter(|(pid, _, u, cmd)| *u == uid && *pid != me && cmd.split('\0').nth(1) == Some("_mate-video"))
         .map(|(pid, ..)| *pid)
         .collect();
     // Añadir descendientes (hasta que no aparezcan más).
@@ -232,21 +287,25 @@ pub fn stop() {
         }
     }
     let _ = std::fs::remove_file(pid_file());
-    let _ = std::fs::remove_file(mpv_socket());
+    remove_sockets();
     let _ = std::fs::remove_file(peek_file());
 }
 
-/// Cambia el vídeo del reproductor que ya está en marcha (sin cerrarlo: sin parpadeo).
-/// Devuelve `false` si no hay reproductor al que pedírselo.
-pub fn switch_to(video: &Path) -> bool {
-    if running_pid().is_none() {
-        return false;
+fn remove_sockets() {
+    if let Ok(rd) = std::fs::read_dir(runtime_dir()) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if n.starts_with("mpv") && n.ends_with(".sock") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
     }
-    let Ok(mut s) = UnixStream::connect(mpv_socket()) else { return false };
-    let cmd = format!(
-        "{{\"command\":[\"loadfile\",{}]}}\n",
-        json_string(&video.to_string_lossy())
-    );
+}
+
+/// Cambia el vídeo de un reproductor en marcha (sin cerrarlo: sin parpadeo).
+fn mpv_loadfile(monitor: &str, video: &Path) -> bool {
+    let Ok(mut s) = UnixStream::connect(mpv_socket(monitor)) else { return false };
+    let cmd = format!("{{\"command\":[\"loadfile\",{}]}}\n", json_string(&video.to_string_lossy()));
     s.write_all(cmd.as_bytes()).is_ok()
 }
 
@@ -265,14 +324,13 @@ fn json_string(s: &str) -> String {
     out
 }
 
-/// Lanza `<exe> _mate-video <ruta>` en segundo plano, en su propia sesión.
-pub fn spawn(exe: &Path, video: &Path) -> std::io::Result<()> {
+/// Lanza `<exe> _mate-video` en segundo plano, en su propia sesión.
+pub fn spawn(exe: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(runtime_dir())?;
     Command::new("setsid")
         .arg("-f")
         .arg(exe)
         .arg("_mate-video")
-        .arg(video)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -286,24 +344,22 @@ pub fn spawn(exe: &Path, video: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("el reproductor de vídeo no arrancó (¿están instalados mpv y xwinwrap?)"))
 }
 
-/// Arranque del vídeo al iniciar sesión (~/.config/autostart).
-pub fn set_autostart(exe: Option<&Path>, video: Option<&Path>) -> std::io::Result<()> {
+/// Arranque de los vídeos al iniciar sesión (~/.config/autostart). Los vídeos se leen de mate.conf.
+pub fn set_autostart(exe: Option<&Path>) -> std::io::Result<()> {
     let f = autostart_file();
-    match (exe, video) {
-        (Some(exe), Some(video)) => {
+    match exe {
+        Some(exe) => {
             std::fs::create_dir_all(f.parent().unwrap())?;
-            let q = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
+            let q = format!("\"{}\"", exe.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
             std::fs::write(
                 f,
                 format!(
                     "[Desktop Entry]\nType=Application\nName=NekoWall (fondo de vídeo)\n\
-                     Exec={} _mate-video {}\nOnlyShowIn=MATE;\nNoDisplay=true\nX-MATE-Autostart-Delay=3\n",
-                    q(exe),
-                    q(video)
+                     Exec={q} _mate-video\nOnlyShowIn=MATE;\nNoDisplay=true\nX-MATE-Autostart-Delay=3\n"
                 ),
             )
         }
-        _ => match std::fs::remove_file(f) {
+        None => match std::fs::remove_file(f) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         },
@@ -334,6 +390,62 @@ fn screen_size() -> (u32, u32) {
     }
 }
 
+/// Salida de `xrandr --listmonitors`:
+/// « 0: +*eDP-1 1920/309x1080/174+0+0  eDP-1» → pantalla eDP-1 de 1920×1080 en (0,0), principal.
+pub(crate) fn parse_listmonitors(out: &str) -> Vec<Monitor> {
+    let mut v = Vec::new();
+    for line in out.lines().skip_while(|l| !l.starts_with("Monitors:")).skip(1) {
+        let t: Vec<&str> = line.split_whitespace().collect();
+        if t.len() < 3 {
+            continue;
+        }
+        let primary = t[1].contains('*');
+        let name = t[1].trim_start_matches(['+', '*']).to_string();
+        // «1920/309x1080/174+0+0»
+        let g = t[2];
+        let Some((wpart, rest)) = g.split_once('x') else { continue };
+        let w: u32 = wpart.split('/').next().unwrap_or("").parse().unwrap_or(0);
+        let mut it = rest.splitn(2, ['+', '-']);
+        let h: u32 = it.next().unwrap_or("").split('/').next().unwrap_or("").parse().unwrap_or(0);
+        // Posición: «+X+Y» (también admite negativos «-X+Y»).
+        let pos = &rest[rest.find(['+', '-']).unwrap_or(rest.len())..];
+        let mut nums = Vec::new();
+        let mut cur = String::new();
+        for c in pos.chars() {
+            if (c == '+' || c == '-') && !cur.is_empty() {
+                nums.push(cur.clone());
+                cur.clear();
+            }
+            cur.push(c);
+        }
+        if !cur.is_empty() {
+            nums.push(cur);
+        }
+        let x = nums.first().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let y = nums.get(1).and_then(|n| n.parse().ok()).unwrap_or(0);
+        if w > 0 && h > 0 && !name.is_empty() {
+            v.push(Monitor { name, x, y, width: w, height: h, primary });
+        }
+    }
+    if !v.iter().any(|m| m.primary) {
+        if let Some(m) = v.first_mut() {
+            m.primary = true;
+        }
+    }
+    v
+}
+
+/// Pantallas actuales (xrandr); sin xrandr, una sola del tamaño del escritorio.
+pub fn monitors() -> Vec<Monitor> {
+    let out = Command::new("xrandr").arg("--listmonitors").output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    let v = out.map(|o| parse_listmonitors(&o)).unwrap_or_default();
+    if !v.is_empty() {
+        return v;
+    }
+    let (w, h) = screen_size();
+    vec![Monitor { name: "default".into(), x: 0, y: 0, width: w, height: h, primary: true }]
+}
+
 /// Ids de ventana en una propiedad de xprop («… # 0x1, 0x2»).
 fn window_ids(out: &str) -> Vec<String> {
     out.split('#')
@@ -347,22 +459,40 @@ fn window_ids(out: &str) -> Vec<String> {
 
 /// Estado y tipo de una ventana (una llamada a xprop).
 struct Win {
+    id: String,
     normal: bool,
     hidden: bool,
     big: bool,
+    /// Centro de la ventana (solo se calcula con varias pantallas).
+    center: Option<(i32, i32)>,
 }
 
-fn window(id: &str) -> Win {
+fn window(id: &str, with_geometry: bool) -> Win {
     let out = xprop(&["-id", id, "_NET_WM_STATE", "_NET_WM_WINDOW_TYPE"]);
     let ty = out.lines().find(|l| l.starts_with("_NET_WM_WINDOW_TYPE")).unwrap_or("");
     let st = out.lines().find(|l| l.starts_with("_NET_WM_STATE")).unwrap_or("");
+    let center = with_geometry.then(|| window_center(id)).flatten();
     Win {
+        id: id.to_string(),
         // Sin tipo declarado = ventana normal (convención EWMH); desktop/dock/notificaciones no cuentan.
         normal: !ty.contains("=") || ty.contains("_NET_WM_WINDOW_TYPE_NORMAL") || ty.contains("_NET_WM_WINDOW_TYPE_DIALOG"),
         hidden: st.contains("_NET_WM_STATE_HIDDEN"),
         big: st.contains("_NET_WM_STATE_FULLSCREEN")
             || (st.contains("_NET_WM_STATE_MAXIMIZED_VERT") && st.contains("_NET_WM_STATE_MAXIMIZED_HORZ")),
+        center,
     }
+}
+
+/// Centro de una ventana en coordenadas de la pantalla completa (`xdotool getwindowgeometry --shell`).
+fn window_center(id: &str) -> Option<(i32, i32)> {
+    let out = Command::new("xdotool").args(["getwindowgeometry", "--shell", id]).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let get = |k: &str| text.lines().find_map(|l| l.strip_prefix(k)).and_then(|v| v.trim().parse::<i32>().ok());
+    Some((get("X=")? + get("WIDTH=")? / 2, get("Y=")? + get("HEIGHT=")? / 2))
+}
+
+fn on_monitor(c: (i32, i32), m: &Monitor) -> bool {
+    c.0 >= m.x && c.0 < m.x + m.width as i32 && c.1 >= m.y && c.1 < m.y + m.height as i32
 }
 
 fn gsettings(args: &[&str]) -> String {
@@ -373,8 +503,8 @@ fn gsettings(args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-/// Si la ventana de escritorio de Caja quedó ENCIMA del vídeo (Marco la sube al cerrarse cualquier
-/// ventana), se sube el vídeo con `windowraise`: no toca Caja, así que los iconos no parpadean.
+/// Si la ventana de escritorio de Caja quedó ENCIMA de algún vídeo (Marco la sube al cerrarse cualquier
+/// ventana), se suben los vídeos con `windowraise`: no toca Caja, así que los iconos no parpadean.
 /// Solo si eso no funciona se recrea el escritorio de Caja (Marco pone la nueva debajo).
 fn caja_above(own: &str) -> Option<bool> {
     let stack = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST_STACKING"])); // de abajo a arriba
@@ -382,13 +512,17 @@ fn caja_above(own: &str) -> Option<bool> {
     Some(stack[video_at + 1..].iter().any(|w| xprop(&["-id", w, "WM_CLASS"]).contains("\"desktop_window\"")))
 }
 
-fn ensure_video_above_caja(own: &str) {
-    if caja_above(own) != Some(true) {
+fn ensure_videos_above_caja(own: &[String]) {
+    if !own.iter().any(|id| caja_above(id) == Some(true)) {
         return;
     }
-    xdotool(&["windowraise", own]);
+    for id in own {
+        xdotool(&["windowraise", id]);
+    }
     std::thread::sleep(Duration::from_millis(60));
-    if caja_above(own) == Some(true) && gsettings(&["get", "org.mate.background", "show-desktop-icons"]) == "true" {
+    if own.iter().any(|id| caja_above(id) == Some(true))
+        && gsettings(&["get", "org.mate.background", "show-desktop-icons"]) == "true"
+    {
         gsettings(&["set", "org.mate.background", "show-desktop-icons", "false"]);
         std::thread::sleep(Duration::from_millis(400));
         gsettings(&["set", "org.mate.background", "show-desktop-icons", "true"]);
@@ -434,136 +568,255 @@ fn battery_low(level: u8) -> bool {
     false
 }
 
-/// ¿Debe pausarse el vídeo ahora? (`own` = ventana de xwinwrap, que no cuenta)
-fn should_pause(s: &MateVideoSettings, own: Option<&str>) -> bool {
-    if s.battery_pauses && battery_low(s.battery_level) {
-        return true;
-    }
+/// ¿Debe pausarse el vídeo de la pantalla `m`? Solo cuentan las ventanas de esa pantalla (con una
+/// sola pantalla, todas). `own` = ventanas de los vídeos, que no cuentan.
+fn should_pause(s: &MateVideoSettings, wins: &[Win], active: Option<&str>, m: &Monitor, multi: bool) -> bool {
+    let here = |w: &&Win| !multi || w.center.is_some_and(|c| on_monitor(c, m));
     match s.pause_mode {
         3 => false,
-        1 => {
-            let active = window_ids(&xprop(&["-root", "_NET_ACTIVE_WINDOW"]));
-            active.first().filter(|id| Some(id.as_str()) != own).map(|id| {
-                let w = window(id);
-                w.normal && !w.hidden
-            }) == Some(true)
-        }
-        m => window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]))
-            .iter()
-            .filter(|id| Some(id.as_str()) != own)
-            .map(|id| window(id))
-            .any(|w| w.normal && !w.hidden && (m == 2 || w.big)),
+        1 => active.is_some_and(|a| wins.iter().filter(here).any(|w| w.id == a && w.normal && !w.hidden)),
+        mode => wins.iter().filter(here).any(|w| w.normal && !w.hidden && (mode == 2 || w.big)),
     }
 }
 
-fn mpv_pause(pause: bool) {
-    if let Ok(mut s) = UnixStream::connect(mpv_socket()) {
+fn mpv_pause(monitor: &str, pause: bool) {
+    if let Ok(mut s) = UnixStream::connect(mpv_socket(monitor)) {
         let _ = writeln!(s, r#"{{"command":["set_property","pause",{pause}]}}"#);
     }
 }
 
-/// Bucle del proceso `_mate-video`: lanza xwinwrap+mpv y pausa/reanuda hasta que mpv termine o llegue SIGTERM.
-pub fn run_daemon(video: &Path) -> Result<(), String> {
+/// Un reproductor (xwinwrap + mpv) en una pantalla.
+struct Player {
+    child: Child,
+    video: PathBuf,
+    geom: Monitor,
+    /// Ventana de xwinwrap (para subirla sobre Caja, ocultarla al «mostrar escritorio»…).
+    own: Option<String>,
+    paused: bool,
+}
+
+impl Player {
+    fn start(m: &Monitor, video: &Path) -> Result<Self, String> {
+        let sock = mpv_socket(&m.name);
+        let _ = std::fs::remove_file(&sock);
+        // Ventanas que ya existían: la del vídeo será la nueva (Caja también es «de escritorio»).
+        let before = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]));
+        let child = Command::new("xwinwrap")
+            .args(["-g", &format!("{}x{}+{}+{}", m.width, m.height, m.x, m.y)])
+            .args(["-ni", "-fdt", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
+            .args(["mpv", "-wid", "WID", "--loop", "--no-audio", "--no-osc", "--no-input-default-bindings",
+                   "--hwdec=auto-safe", "--panscan=1.0", "--really-quiet", "--no-terminal"])
+            .arg(format!("--input-ipc-server={}", sock.display()))
+            .arg(video)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("no se pudo lanzar xwinwrap/mpv: {e}"))?;
+        // Ventana propia: nueva, de tipo escritorio y sin WM_CLASS. Se espera hasta 5 s.
+        let mut own = None;
+        for _ in 0..25 {
+            std::thread::sleep(Duration::from_millis(200));
+            own = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"])).into_iter().find(|id| {
+                !before.contains(id) && {
+                    let p = xprop(&["-id", id, "_NET_WM_WINDOW_TYPE", "WM_CLASS"]);
+                    p.contains("_NET_WM_WINDOW_TYPE_DESKTOP") && !p.contains("desktop_window")
+                }
+            });
+            if own.is_some() {
+                break;
+            }
+        }
+        Ok(Self { child, video: video.to_path_buf(), geom: m.clone(), own, paused: false })
+    }
+
+    /// Cierra xwinwrap y su mpv.
+    fn stop(mut self) {
+        let pid = self.child.id() as i32;
+        let kids: Vec<String> = processes().iter().filter(|(_, pp, ..)| *pp == pid).map(|(p, ..)| p.to_string()).collect();
+        let _ = Command::new("kill").arg("-TERM").args(&kids).arg(pid.to_string()).stderr(Stdio::null()).status();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_file(mpv_socket(&self.geom.name));
+    }
+}
+
+fn mtime(p: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+}
+
+/// Bucle del proceso `_mate-video`: mantiene un reproductor por cada pantalla con vídeo y los pausa o
+/// reanuda. Termina cuando ninguna pantalla tiene vídeo, o con SIGTERM.
+/// `legacy`: ruta que pasaban las versiones de una sola pantalla (autostart antiguo).
+pub fn run_daemon(legacy: Option<&Path>) -> Result<(), String> {
     std::fs::create_dir_all(runtime_dir()).map_err(|e| e.to_string())?;
     if let Some(old) = running_pid() {
         if old != std::process::id() as i32 {
             return Err("ya hay un fondo de vídeo en marcha".into());
         }
     }
-    std::fs::write(pid_file(), std::process::id().to_string()).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(mpv_socket());
-    let (w, h) = screen_size();
-    // Ventanas que ya existían: la del vídeo será la nueva (Caja también es «de escritorio»).
-    let before = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]));
-    let mut child: Child = Command::new("xwinwrap")
-        .args(["-g", &format!("{w}x{h}+0+0"), "-ni", "-fdt", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
-        .args(["mpv", "-wid", "WID", "--loop", "--no-audio", "--no-osc", "--no-input-default-bindings",
-               "--hwdec=auto-safe", "--panscan=1.0", "--really-quiet", "--no-terminal"])
-        .arg(format!("--input-ipc-server={}", mpv_socket().display()))
-        .arg(video)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("no se pudo lanzar xwinwrap/mpv: {e}"))?;
-
-    // Ventana propia (la de xwinwrap): nueva, de tipo escritorio y sin WM_CLASS. Se espera hasta 5 s.
-    let mut own = None;
-    for _ in 0..25 {
-        std::thread::sleep(Duration::from_millis(200));
-        own = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"])).into_iter().find(|id| {
-            !before.contains(id) && {
-                let p = xprop(&["-id", id, "_NET_WM_WINDOW_TYPE", "WM_CLASS"]);
-                p.contains("_NET_WM_WINDOW_TYPE_DESKTOP") && !p.contains("desktop_window")
-            }
-        });
-        if own.is_some() {
-            break;
+    // Versión antigua: un único vídeo para todas las pantallas.
+    if let Some(v) = legacy {
+        if assignments_in(&config_dir()).is_empty() {
+            let a = monitors().into_iter().map(|m| (m.name, v.to_path_buf())).collect();
+            save_assignments_in(&config_dir(), &a).map_err(|e| e.to_string())?;
         }
     }
-
+    std::fs::write(pid_file(), std::process::id().to_string()).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(peek_file());
-    if let Some(id) = own.as_deref() {
-        std::thread::sleep(Duration::from_millis(300));
-        ensure_video_above_caja(id);
-    }
 
-    // Cambios de orden de ventanas → corregir al momento (y además un sondeo de respaldo cada 5 s).
+    let mut players: BTreeMap<String, Player> = BTreeMap::new();
+    // Vídeos que no arrancan (archivo dañado…): no se reintentan hasta que cambie la asignación.
+    let mut failed: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut screens = monitors();
+    let mut seen_state = None;
+
     let (tx, rx) = std::sync::mpsc::channel();
     let mut spy = spy_stacking(tx);
 
-    // Bucle: «mostrar escritorio» y el orden se atienden al momento; la pausa se decide cada segundo.
-    let mut paused = false;
     let mut peeking = false;
     let mut tick = 0u32;
     let mut settings = load_settings();
     loop {
-        if let Ok(Some(_)) = child.try_wait() {
-            break; // mpv/xwinwrap terminó (ventana cerrada, archivo inválido…)
+        // 1) Pantallas o asignaciones cambiadas → crear, cambiar o cerrar reproductores.
+        let state_now = mtime(&state_file());
+        let screens_changed = tick % 25 == 0 && tick > 0 && {
+            let now = monitors();
+            let changed = now != screens;
+            if changed {
+                screens = now;
+                crate::rerender_background(); // la imagen de Caja depende de la disposición
+            }
+            changed
+        };
+        if state_now != seen_state || screens_changed {
+            seen_state = state_now;
+            let want = video_assignments();
+            failed.retain(|m, v| want.get(m) == Some(v));
+            // Quitar los que sobran (la imagen de Caja ya se cambió antes de escribir el estado).
+            let gone: Vec<String> = players
+                .iter()
+                .filter(|(m, p)| want.get(*m).is_none() || !screens.iter().any(|s| s == &p.geom))
+                .map(|(m, _)| m.clone())
+                .collect();
+            for m in gone {
+                if let Some(p) = players.remove(&m) {
+                    p.stop();
+                }
+            }
+            for (m, v) in &want {
+                let Some(geom) = screens.iter().find(|s| &s.name == m) else { continue };
+                match players.get_mut(m) {
+                    Some(p) if &p.video != v => {
+                        if mpv_loadfile(m, v) {
+                            p.video = v.clone();
+                        }
+                    }
+                    Some(_) => {}
+                    None if failed.get(m) == Some(v) => {}
+                    None => match Player::start(geom, v) {
+                        Ok(p) => {
+                            if peeking {
+                                if let Some(id) = &p.own {
+                                    xdotool(&["windowunmap", id]);
+                                }
+                                mpv_pause(m, true);
+                            }
+                            players.insert(m.clone(), p);
+                        }
+                        Err(_) => {
+                            failed.insert(m.clone(), v.clone());
+                        }
+                    },
+                }
+            }
+            if want.is_empty() {
+                break;
+            }
+            let own: Vec<String> = players.values().filter_map(|p| p.own.clone()).collect();
+            std::thread::sleep(Duration::from_millis(300));
+            ensure_videos_above_caja(&own);
         }
+
+        // 2) Reproductores que terminaron solos (archivo inválido…).
+        let dead: Vec<String> = players
+            .iter_mut()
+            .filter_map(|(m, p)| matches!(p.child.try_wait(), Ok(Some(_))).then(|| m.clone()))
+            .collect();
+        for m in dead {
+            if let Some(p) = players.remove(&m) {
+                failed.insert(m, p.video.clone());
+            }
+        }
+        if players.is_empty() && failed.len() >= video_assignments().len() {
+            break;
+        }
+        let own: Vec<String> = players.values().filter_map(|p| p.own.clone()).collect();
+
+        // 3) «Mostrar escritorio» (Meta+Alt+D): todas las pantallas a la vez.
         let peek = peek_file().exists();
         if peek != peeking {
             peeking = peek;
-            if let Some(id) = own.as_deref() {
-                if peek {
-                    mpv_pause(true);
-                    xdotool(&["windowunmap", id]);
-                } else {
-                    xdotool(&["windowmap", id]);
-                    std::thread::sleep(Duration::from_millis(300));
-                    ensure_video_above_caja(id);
-                    paused = !paused; // fuerza a reaplicar el estado de pausa abajo
+            for (m, p) in players.iter_mut() {
+                if let Some(id) = &p.own {
+                    if peek {
+                        mpv_pause(m, true);
+                        xdotool(&["windowunmap", id]);
+                    } else {
+                        xdotool(&["windowmap", id]);
+                    }
                 }
+                p.paused = !p.paused; // fuerza a reaplicar el estado de pausa abajo
+            }
+            if !peek {
+                std::thread::sleep(Duration::from_millis(300));
+                ensure_videos_above_caja(&own);
             }
         }
-        if !peeking && tick % 5 == 0 {
+
+        // 4) Pausa: cada segundo, por pantalla.
+        if !peeking && tick % 5 == 0 && !players.is_empty() {
             if tick % 50 == 0 {
                 settings = load_settings(); // recoge cambios hechos desde la interfaz
             }
-            let want = should_pause(&settings, own.as_deref());
-            if want != paused {
-                mpv_pause(want);
-                paused = want;
+            let battery = settings.battery_pauses && battery_low(settings.battery_level);
+            let multi = screens.len() > 1;
+            let (wins, active) = if battery || settings.pause_mode == 3 {
+                (Vec::new(), None)
+            } else {
+                let wins: Vec<Win> = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]))
+                    .iter()
+                    .filter(|id| !own.contains(id))
+                    .map(|id| window(id, multi))
+                    .collect();
+                let active = window_ids(&xprop(&["-root", "_NET_ACTIVE_WINDOW"])).into_iter().next();
+                (wins, active)
+            };
+            for (m, p) in players.iter_mut() {
+                let want = battery || should_pause(&settings, &wins, active.as_deref(), &p.geom, multi);
+                if want != p.paused {
+                    mpv_pause(m, want);
+                    p.paused = want;
+                }
             }
         }
         if !peeking && tick % 25 == 0 && tick > 0 {
-            if let Some(id) = own.as_deref() {
-                ensure_video_above_caja(id);
-            }
+            ensure_videos_above_caja(&own);
         }
         tick = tick.wrapping_add(1);
         // Espera hasta 200 ms, o menos si cambió el orden de las ventanas.
         if rx.recv_timeout(Duration::from_millis(200)).is_ok() {
             while rx.try_recv().is_ok() {}
             if !peeking {
-                if let Some(id) = own.as_deref() {
-                    // Subir el vídeo YA (una sola llamada, sin comprobar antes): si ya estaba arriba no
-                    // cambia nada. Luego se verifica, por si hiciera falta el último recurso.
+                // Subir los vídeos YA (sin comprobar antes): si ya estaban arriba no cambia nada.
+                for id in &own {
                     xdotool(&["windowraise", id]);
-                    ensure_video_above_caja(id);
                 }
+                ensure_videos_above_caja(&own);
             }
         }
+    }
+    for (_, p) in std::mem::take(&mut players) {
+        p.stop();
     }
     if let Some(mut c) = spy.take() {
         let _ = c.kill();
@@ -582,6 +835,18 @@ mod tests {
     fn json_strings_for_mpv() {
         assert_eq!(json_string("/a/b c.mp4"), r#""/a/b c.mp4""#);
         assert_eq!(json_string(r#"/x/"comillas"\barra.mp4"#), r#""/x/\"comillas\"\\barra.mp4""#);
+    }
+
+    #[test]
+    fn parses_xrandr_monitors() {
+        let out = "Monitors: 2\n 0: +*eDP-1 1920/309x1080/174+0+0  eDP-1\n 1: +HDMI-1 2560/597x1440/336+1920+0  HDMI-1\n";
+        let m = parse_listmonitors(out);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0], Monitor { name: "eDP-1".into(), x: 0, y: 0, width: 1920, height: 1080, primary: true });
+        assert_eq!(m[1], Monitor { name: "HDMI-1".into(), x: 1920, y: 0, width: 2560, height: 1440, primary: false });
+        // Monitores virtuales (xrandr --setmonitor) y posiciones negativas.
+        let m = parse_listmonitors("Monitors: 1\n 0: IZQ 1280/0x1080/0-1280+0\n");
+        assert_eq!((m[0].name.as_str(), m[0].x, m[0].y, m[0].primary), ("IZQ", -1280, 0, true));
     }
 
     #[test]

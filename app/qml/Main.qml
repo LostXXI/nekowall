@@ -12,6 +12,9 @@ ApplicationWindow {
     minimumHeight: 480
     visible: true
     title: "NekoWall"
+    // La pantalla de la ventana es el destino por defecto de «Aplicar» («donde está el ratón»).
+    onScreenChanged: Bridge.hostScreen = screen ? screen.name : ""
+    Component.onCompleted: Bridge.hostScreen = screen ? screen.name : ""
 
     property int pageIndex: Qt.application.arguments.indexOf("--page=1") >= 0 ? 1
                           : Qt.application.arguments.indexOf("--page=2") >= 0 ? 2 : 0
@@ -323,8 +326,9 @@ ApplicationWindow {
             ColumnLayout {
                 spacing: 0
                 Label {
-                    text: Bridge.currentId ? "Fondo actual: " + (win.nameOf(Bridge.currentId) || "fuera de la biblioteca")
-                                           : "Fondo actual: desconocido"
+                    text: (Bridge.currentId ? "Fondo actual: " + (win.nameOf(Bridge.currentId) || "fuera de la biblioteca")
+                                            : "Fondo actual: desconocido")
+                          + (Bridge.multiScreen ? "  (" + Bridge.targetLabel + ")" : "")
                     elide: Text.ElideRight
                     Layout.maximumWidth: win.width * 0.4
                 }

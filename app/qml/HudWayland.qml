@@ -11,4 +11,6 @@ Hud {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
     LayerShell.Window.exclusionZone: -1
     LayerShell.Window.scope: "nekowall-hud"
+    // Varias pantallas: que KWin la abra en la pantalla activa (la del ratón/foco), no siempre en la principal.
+    LayerShell.Window.screenConfiguration: LayerShell.Window.ScreenFromCompositor
 }

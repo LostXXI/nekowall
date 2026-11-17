@@ -61,6 +61,7 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 | **Meta+Alt+W** | Abre el selector rápido (desde cualquier sitio) |
 | ← → / ↑ ↓ | En el selector: moverse entre vídeos / imágenes |
 | **Enter** · **Esc** | En el selector: aplicar · cerrar |
+| **P** | En el selector, con varias pantallas: elegir en cuál se aplica (o en todas) |
 | **Meta+Alt+D** | Solo MATE con vídeo de fondo: ver los iconos del escritorio (otra vez para volver) |
 
 ## Si algo no funciona
@@ -99,6 +100,8 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
 - **No copia tus archivos**: solo recuerda dónde están.
 - **Tiene su propia carpeta** (`~/Pictures/nekowallpapers`) y **vigila tus carpetas**: si copias o borras
   fondos en ellas, la biblioteca se actualiza sola.
+- **Varias pantallas**: cada una puede tener su propio fondo (imagen o vídeo). El fondo se aplica en la
+  pantalla donde está el ratón, o eliges otra (o todas) con el botón del selector o de la biblioteca.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.
 - **Cerrado no gasta memoria**: no deja nada funcionando en segundo plano.
 - Detecta solo tu escritorio: en **KDE** usa las herramientas de Plasma y en **MATE** reproduce el vídeo con

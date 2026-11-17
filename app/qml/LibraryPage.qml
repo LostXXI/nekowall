@@ -80,6 +80,22 @@ Item {
                 Keys.onReturnPressed: grid.forceActiveFocus()
                 Keys.onEscapePressed: { text = ""; grid.forceActiveFocus() }
             }
+            // Varias pantallas: dónde se aplica el fondo. Por defecto, la pantalla de esta ventana.
+            ComboBox {
+                id: screenBox
+                visible: Bridge.multiScreen
+                // [{text, value}]: value "" = esta pantalla, nombre = esa pantalla, "*" = todas
+                readonly property var options: [{ text: "Esta pantalla (" + Bridge.hostScreen + ")", value: "" }]
+                    .concat(Bridge.screens.map(s => ({ text: s.label + (s.primary ? " (principal)" : ""), value: s.name })))
+                    .concat([{ text: "Todas las pantallas", value: "*" }])
+                model: options.map(o => o.text)
+                currentIndex: Math.max(0, options.findIndex(o => o.value === Bridge.target))
+                onActivated: (i) => Bridge.target = options[i].value
+                Layout.preferredWidth: Math.max(implicitWidth, 260)
+                ToolTip.visible: hovered
+                ToolTip.text: "Pantalla donde se aplica el fondo"
+                Accessible.name: "Aplicar en"
+            }
             ComboBox {
                 id: sortBox
                 model: ["Nombre (A-Z)", "Más recientes", "Más grandes"]

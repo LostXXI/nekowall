@@ -428,11 +428,17 @@ impl Library {
                 }
             }
         }
-        for key in ["current_path", "previous_path"] {
-            let v: Option<String> = tx
-                .query_row("SELECT value FROM state WHERE key = ?1", params![key], |r| r.get(0))
-                .optional()?;
-            if let Some(rest) = v.as_deref().and_then(|v| v.strip_prefix(&prefix)) {
+        // current_path / previous_path, también los de cada pantalla («current_path@HDMI-1»).
+        let keys: Vec<(String, String)> = {
+            let mut st = tx.prepare(
+                "SELECT key, value FROM state WHERE key IN ('current_path','previous_path')
+                 OR key LIKE 'current\\_path@%' ESCAPE '\\' OR key LIKE 'previous\\_path@%' ESCAPE '\\'",
+            )?;
+            let it = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            it.collect::<Result<_, _>>()?
+        };
+        for (key, v) in keys {
+            if let Some(rest) = v.strip_prefix(&prefix) {
                 tx.execute("UPDATE state SET value = ?1 WHERE key = ?2", params![format!("{new}/{rest}"), key])?;
             }
         }

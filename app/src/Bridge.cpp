@@ -4,6 +4,7 @@
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QCursor>
 #include <QDir>
 #ifdef HAVE_KWINDOWEFFECTS
 #include <KWindowEffects>
@@ -54,6 +55,105 @@ Bridge::Bridge(QObject *parent)
     m_syncTimer->setInterval(1500);
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_syncTimer, qOverload<>(&QTimer::start));
     connect(m_syncTimer, &QTimer::timeout, this, &Bridge::syncFolders);
+
+    auto screensMoved = [this] { emit screensChanged(); emit targetChanged(); emit statusChanged(); };
+    connect(qGuiApp, &QGuiApplication::screenAdded, this, screensMoved);
+    connect(qGuiApp, &QGuiApplication::screenRemoved, this, screensMoved);
+}
+
+// ── Varias pantallas ───────────────────────────────────────────────────────
+
+QVariantList Bridge::screens() const
+{
+    QVariantList out;
+    const auto list = QGuiApplication::screens();
+    for (int i = 0; i < list.size(); ++i) {
+        const QScreen *s = list[i];
+        QVariantMap m;
+        m[QStringLiteral("name")] = s->name();
+        m[QStringLiteral("label")] = QStringLiteral("Pantalla %1 · %2").arg(i + 1).arg(s->name());
+        m[QStringLiteral("primary")] = s == QGuiApplication::primaryScreen();
+        out << m;
+    }
+    return out;
+}
+
+bool Bridge::multiScreen() const
+{
+    return m_perMonitor && QGuiApplication::screens().size() > 1;
+}
+
+QString Bridge::resolvedScreen() const
+{
+    if (!multiScreen() || m_target == QStringLiteral("*"))
+        return QString();
+    QStringList names;
+    for (const QScreen *s : QGuiApplication::screens())
+        names << s->name();
+    if (!m_target.isEmpty() && names.contains(m_target))
+        return m_target;
+    if (names.contains(m_hostScreen))
+        return m_hostScreen;
+    return QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->name() : QString();
+}
+
+QString Bridge::targetLabel() const
+{
+    if (!multiScreen())
+        return QString();
+    const QString r = resolvedScreen();
+    if (r.isEmpty())
+        return QStringLiteral("Todas las pantallas");
+    for (const QVariant &v : screens()) {
+        const QVariantMap m = v.toMap();
+        if (m.value(QStringLiteral("name")).toString() == r)
+            return m.value(QStringLiteral("label")).toString();
+    }
+    return r;
+}
+
+void Bridge::setTarget(const QString &t)
+{
+    if (t == m_target)
+        return;
+    m_target = t;
+    emit targetChanged();
+    emit statusChanged();   // currentId depende del destino
+}
+
+void Bridge::setHostScreen(const QString &s)
+{
+    if (s == m_hostScreen)
+        return;
+    m_hostScreen = s;
+    emit targetChanged();
+    emit statusChanged();
+}
+
+void Bridge::cycleTarget()
+{
+    if (!multiScreen())
+        return;
+    QStringList order;
+    for (const QScreen *s : QGuiApplication::screens())
+        order << s->name();
+    order << QStringLiteral("*");
+    const QString now = resolvedScreen().isEmpty() ? QStringLiteral("*") : resolvedScreen();
+    setTarget(order.value((order.indexOf(now) + 1) % order.size()));
+}
+
+int Bridge::cursorScreenIndex() const
+{
+    QScreen *s = QGuiApplication::screenAt(QCursor::pos());
+    return s ? int(QGuiApplication::screens().indexOf(s)) : -1;
+}
+
+QString Bridge::currentId() const
+{
+    const QString r = resolvedScreen();
+    if (!r.isEmpty() && m_currentByScreen.contains(r))
+        return m_currentByScreen.value(r);
+    return m_currentId;
 }
 
 QString Bridge::mascotUrl() const
@@ -387,6 +487,19 @@ void Bridge::loadStatus()
                           .value(QStringLiteral("video")).toBool();
             m_currentId = o.value(QStringLiteral("current")).toObject()
                               .value(QStringLiteral("id")).toString();
+            const bool perMonitor = o.value(QStringLiteral("capabilities")).toObject()
+                                        .value(QStringLiteral("per_monitor")).toBool();
+            m_currentByScreen.clear();
+            for (const QJsonValue &mv : o.value(QStringLiteral("monitors")).toArray()) {
+                const QJsonObject mo = mv.toObject();
+                m_currentByScreen.insert(mo.value(QStringLiteral("name")).toString(),
+                                         mo.value(QStringLiteral("current")).toObject().value(QStringLiteral("id")).toString());
+            }
+            if (perMonitor != m_perMonitor) {
+                m_perMonitor = perMonitor;
+                emit screensChanged();
+                emit targetChanged();
+            }
             m_dbPath = o.value(QStringLiteral("db")).toString();
             m_thumbsDir = o.value(QStringLiteral("thumbs_dir")).toString();
             emit statusChanged();
@@ -398,11 +511,23 @@ void Bridge::apply(const QString &id)
     if (m_busy || id.isEmpty())
         return;
     setBusy(true);
-    run({QStringLiteral("apply"), id},
-        [this, id](int code, const QByteArray &, const QByteArray &err) {
+    const QString monitor = resolvedScreen();   // "" = todas
+    QStringList args{QStringLiteral("apply"), id};
+    if (!monitor.isEmpty())
+        args << QStringLiteral("--monitor") << monitor;
+    run(args,
+        [this, id, monitor](int code, const QByteArray &, const QByteArray &err) {
             setBusy(false);
             if (code == 0) {
-                m_currentId = id;
+                if (monitor.isEmpty()) {
+                    m_currentId = id;
+                    for (auto it = m_currentByScreen.begin(); it != m_currentByScreen.end(); ++it)
+                        it.value() = id;
+                } else {
+                    m_currentByScreen.insert(monitor, id);
+                    if (QGuiApplication::primaryScreen() && QGuiApplication::primaryScreen()->name() == monitor)
+                        m_currentId = id;
+                }
                 emit statusChanged();
                 emit applied(true, id, QString());
             } else {

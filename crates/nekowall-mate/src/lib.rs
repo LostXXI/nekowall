@@ -4,12 +4,18 @@
 //! escritorio al momento. Comprobado en neko-void MATE (2026-11): la sesión es X11, Caja dibuja el
 //! escritorio y Marco es el gestor de ventanas.
 //! Vídeo: `xwinwrap` + `mpv` detrás de las ventanas y un proceso propio que pausa (ver `video.rs`).
+//!
+//! Varias pantallas: cada una tiene su fondo (`mon.<pantalla>=<ruta>` en ~/.config/nekowall/mate.conf).
+//! Caja solo admite UNA imagen, así que con varias pantallas se compone una imagen
+//! del tamaño de todo el escritorio (con ffmpeg), cada fondo recortado a su pantalla, y se muestra con
+//! `picture-options = spanned`. Las pantallas con vídeo llevan debajo un fotograma del vídeo.
 
 use nekowall_backend::{
-    BackendCapabilities, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
+    BackendCapabilities, Monitor, Wallpaper, WallpaperBackend, WallpaperError, WallpaperKind,
 };
+use std::collections::BTreeMap;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 pub mod video;
@@ -33,6 +39,8 @@ pub struct MateBackend<R: CommandRunner = SystemRunner> {
     runner: R,
     /// Hay `mpv` y `xwinwrap`: se pueden poner vídeos (desactivado en los tests).
     video: bool,
+    /// Carpeta de mate.conf (~/.config/nekowall; otra en los tests).
+    dir: PathBuf,
 }
 
 fn in_path(prog: &str) -> bool {
@@ -43,7 +51,7 @@ fn in_path(prog: &str) -> bool {
 
 impl MateBackend<SystemRunner> {
     pub fn new() -> Self {
-        Self { runner: SystemRunner, video: in_path("mpv") && in_path("xwinwrap") }
+        Self { runner: SystemRunner, video: in_path("mpv") && in_path("xwinwrap"), dir: video::config_dir() }
     }
 
     /// `XDG_CURRENT_DESKTOP` contiene «MATE».
@@ -61,48 +69,125 @@ impl Default for MateBackend<SystemRunner> {
 }
 
 impl<R: CommandRunner> MateBackend<R> {
+    /// Para los tests: estado en una carpeta temporal propia.
     pub fn with_runner(runner: R) -> Self {
-        Self { runner, video: false }
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!("nw-mate-state-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        Self { runner, video: false, dir }
     }
 
     pub fn video_available(&self) -> bool {
         self.video
     }
 
-    /// Deja de reproducir el vídeo (si lo hay) y devuelve el escritorio de Caja a como estaba.
+    /// Pantallas (xrandr). Sin xrandr: una sola llamada «default».
+    pub fn monitors(&self) -> Vec<Monitor> {
+        let v = self
+            .runner
+            .run("xrandr", &["--listmonitors"])
+            .map(|o| video::parse_listmonitors(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or_default();
+        if v.is_empty() {
+            video::monitors()
+        } else {
+            v
+        }
+    }
+
+    /// Fondo de cada pantalla. Las que aún no tienen (primera vez, versión anterior, pantalla nueva)
+    /// toman el fondo que había, o el de la pantalla principal.
+    fn assignments(&self, mons: &[Monitor]) -> BTreeMap<String, PathBuf> {
+        let mut a = video::assignments_in(&self.dir);
+        if mons.iter().all(|m| a.contains_key(&m.name)) {
+            return a;
+        }
+        let fallback = self
+            .legacy_current()
+            .or_else(|| mons.iter().find(|m| m.primary).and_then(|m| a.get(&m.name).cloned()))
+            .or_else(|| a.values().next().cloned());
+        if let Some(f) = fallback {
+            for m in mons {
+                a.entry(m.name.clone()).or_insert_with(|| f.clone());
+            }
+        }
+        a
+    }
+
+    /// Fondo único de las versiones anteriores (antes de recordar uno por pantalla).
+    fn legacy_current(&self) -> Option<PathBuf> {
+        if self.video && video::running() {
+            if let Some(v) = video::legacy_video_in(&self.dir) {
+                return Some(v);
+            }
+        }
+        let raw = self.gsettings(&["get", SCHEMA, "picture-filename"]).ok()?;
+        let p = PathBuf::from(parse_gvariant_string(&raw)?);
+        // Las imágenes que genera NekoWall (fotogramas, composiciones) no son «el fondo».
+        let ours = video::cache_dir().is_some_and(|c| p.starts_with(c));
+        (!ours && p.as_os_str().len() > 0).then_some(p)
+    }
+
+    /// Lo que debe mostrar Caja: el fondo común, o una imagen compuesta si las pantallas difieren.
+    fn render(&self, a: &BTreeMap<String, PathBuf>, mons: &[Monitor]) -> Result<(), WallpaperError> {
+        let mut stills: Vec<(&Monitor, PathBuf)> = Vec::new();
+        for m in mons {
+            let Some(p) = a.get(&m.name) else { continue };
+            let still = if WallpaperKind::from_path(p) == Some(WallpaperKind::Video) {
+                match video::still_frame(p) {
+                    Some(f) => f,
+                    None => continue,
+                }
+            } else {
+                p.clone()
+            };
+            stills.push((m, still));
+        }
+        let Some(first) = stills.first().map(|(_, p)| p.clone()) else { return Ok(()) };
+        // Con una pantalla, la imagen tal cual. Con varias SIEMPRE se compone (aunque sea la misma en
+        // todas): así cada pantalla la recibe recortada a su tamaño, y no estirada sobre el escritorio
+        // entero como hace Caja en algunas configuraciones.
+        let same = mons.len() == 1 && stills.len() == 1;
+        let _ = &first;
+
+        let options = self.gsettings(&["get", SCHEMA, "picture-options"]).unwrap_or_default();
+        let options = options.trim_matches('\'');
+        let file = if same {
+            // Un solo fondo: el modo de siempre (y se deshace el «spanned» que puso NekoWall).
+            if options == "spanned" || options == "none" {
+                let before = video::read_state_in(&self.dir).into_iter().find(|(k, _)| k == "options_before").map(|(_, v)| v);
+                let back = before.filter(|b| b != "spanned" && b != "none").unwrap_or_else(|| "zoom".into());
+                self.gsettings(&["set", SCHEMA, "picture-options", &back])?;
+            }
+            first
+        } else {
+            let out = compose(&stills, mons).ok_or_else(|| WallpaperError::CommandFailed {
+                command: "ffmpeg (componer el fondo de varias pantallas)".into(),
+                detail: "no se pudo crear la imagen; ¿está instalado ffmpeg?".into(),
+            })?;
+            if options != "spanned" {
+                let mut st: Vec<_> = video::read_state_in(&self.dir).into_iter().filter(|(k, _)| k != "options_before").collect();
+                st.push(("options_before".into(), options.to_string()));
+                video::write_state_in(&self.dir, &st)?;
+                self.gsettings(&["set", SCHEMA, "picture-options", "spanned"])?;
+            }
+            out
+        };
+        self.gsettings(&["set", SCHEMA, "draw-background", "true"])?;
+        self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&file.to_string_lossy())])?;
+        Ok(())
+    }
+
+    /// Deja de reproducir vídeos (si los hay) y devuelve el escritorio de Caja a como estaba.
     fn stop_video(&self) -> Result<(), WallpaperError> {
         if !self.video {
             return Ok(());
         }
         video::stop();
-        video::remember_video(None)?;
-        video::set_autostart(None, None)?;
+        video::set_autostart(None)?;
         if let Some(prev) = video::take_saved_icons() {
             self.gsettings(&["set", SCHEMA, "show-desktop-icons", &prev])?;
         }
-        Ok(())
-    }
-
-    fn apply_video(&self, w: &Wallpaper) -> Result<(), WallpaperError> {
-        let exe = std::env::current_exe()?;
-        // 1) Primero el fondo de Caja (un fotograma del vídeo nuevo): si en algún instante se ve Caja,
-        //    muestra ya la misma escena y no una imagen vieja.
-        if let Some(frame) = video::still_frame(&w.path) {
-            let _ = self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&frame.to_string_lossy())]);
-        }
-        // 2) Si ya hay un vídeo, se cambia dentro del mismo reproductor (sin cerrar la ventana: sin corte).
-        //    Si no, se lanza el reproductor.
-        if !video::switch_to(&w.path) {
-            video::stop();
-            video::spawn(&exe, &w.path)?;
-        }
-        // Versiones anteriores apagaban el escritorio de Caja: si quedó apagado por NekoWall, se restaura
-        // (ahora Caja sigue activo debajo del vídeo y recibe los clics).
-        if let Some(prev) = video::take_saved_icons() {
-            self.gsettings(&["set", SCHEMA, "show-desktop-icons", &prev])?;
-        }
-        video::remember_video(Some(&w.path))?;
-        video::set_autostart(Some(&exe), Some(&w.path))?;
         Ok(())
     }
 
@@ -162,6 +247,64 @@ fn parse_gvariant_string(s: &str) -> Option<String> {
     Some(out)
 }
 
+/// Imagen del tamaño de todo el escritorio con el fondo de cada pantalla recortado a su sitio
+/// (~/.cache/nekowall/span-<hash>.jpg). Se reutiliza si ya existe la misma combinación.
+fn compose(stills: &[(&Monitor, PathBuf)], mons: &[Monitor]) -> Option<PathBuf> {
+    let w = mons.iter().map(|m| m.x + m.width as i32).max()?.max(1);
+    let h = mons.iter().map(|m| m.y + m.height as i32).max()?.max(1);
+    let mut key = format!("{w}x{h}");
+    for (m, p) in stills {
+        let t = std::fs::metadata(p).and_then(|md| md.modified()).ok().map(|t| format!("{t:?}")).unwrap_or_default();
+        key.push_str(&format!("|{}:{}x{}+{}+{}={}@{t}", m.name, m.width, m.height, m.x, m.y, p.display()));
+    }
+    let dir = video::cache_dir()?;
+    let out = dir.join(format!("span-{}.jpg", nekowall_backend::id_for_path(Path::new(&key))));
+    if !out.exists() {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args(["-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i", &format!("color=c=black:s={w}x{h}")]);
+        let mut graph = String::new();
+        let mut last = "0:v".to_string();
+        for (i, (m, p)) in stills.iter().enumerate() {
+            cmd.arg("-i").arg(p);
+            let (mw, mh) = (m.width, m.height);
+            graph.push_str(&format!(
+                "[{n}:v]scale={mw}:{mh}:force_original_aspect_ratio=increase,crop={mw}:{mh},setsar=1[s{i}];\
+                 [{last}][s{i}]overlay={x}:{y}[c{i}];",
+                n = i + 1, x = m.x.max(0), y = m.y.max(0)
+            ));
+            last = format!("c{i}");
+        }
+        graph.pop();
+        let tmp = dir.join(".span-tmp.jpg");
+        let ok = cmd
+            .args(["-filter_complex", &graph, "-map", &format!("[{last}]"), "-frames:v", "1", "-q:v", "2"])
+            .arg(&tmp)
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok || std::fs::rename(&tmp, &out).is_err() {
+            return None;
+        }
+    }
+    // Composiciones viejas fuera (Caja ya no las usa: el nombre cambia con cada combinación).
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if n.starts_with("span-") && e.path() != out {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    Some(out)
+}
+
+/// La disposición de pantallas cambió (el vigilante lo detecta): rehacer la imagen de Caja.
+pub(crate) fn rerender_background() {
+    let b = MateBackend::new();
+    let mons = b.monitors();
+    let a = b.assignments(&mons);
+    let _ = b.render(&a, &mons);
+}
+
 impl<R: CommandRunner> WallpaperBackend for MateBackend<R> {
     fn name(&self) -> &'static str {
         "mate"
@@ -171,15 +314,16 @@ impl<R: CommandRunner> WallpaperBackend for MateBackend<R> {
         BackendCapabilities {
             static_wallpapers: true,
             video_wallpapers: self.video,
+            per_monitor: true,
             pause_video: self.video,
-            ..Default::default()
         }
     }
 
+    fn monitors(&self) -> Vec<Monitor> {
+        MateBackend::monitors(self)
+    }
+
     fn apply(&self, wallpaper: &Wallpaper, monitor: Option<&str>) -> Result<(), WallpaperError> {
-        if monitor.is_some() {
-            return Err(WallpaperError::Unsupported("MATE usa el mismo fondo en todos los monitores".into()));
-        }
         if wallpaper.kind == WallpaperKind::Video && !self.video {
             return Err(WallpaperError::Unsupported(
                 "para fondos de vídeo en MATE instala `mpv` y `xwinwrap` (xbps-install mpv xwinwrap)".into(),
@@ -188,27 +332,59 @@ impl<R: CommandRunner> WallpaperBackend for MateBackend<R> {
         if !wallpaper.path.is_file() {
             return Err(WallpaperError::NotFound(wallpaper.path.clone()));
         }
-        if wallpaper.kind == WallpaperKind::Video {
-            return self.apply_video(wallpaper);
+        let mons = self.monitors();
+        let targets: Vec<String> = match monitor {
+            None => mons.iter().map(|m| m.name.clone()).collect(),
+            Some(n) if mons.iter().any(|m| m.name == n) => vec![n.to_string()],
+            Some(n) => {
+                let names: Vec<&str> = mons.iter().map(|m| m.name.as_str()).collect();
+                return Err(WallpaperError::Unsupported(format!(
+                    "no hay ninguna pantalla «{n}» (hay: {})",
+                    names.join(", ")
+                )));
+            }
+        };
+        let mut a = self.assignments(&mons);
+        for t in targets {
+            a.insert(t, wallpaper.path.clone());
         }
-        let path = wallpaper.path.to_string_lossy();
-        // Si el usuario tenía «sin imagen», Caja no mostraría nada: forzar un modo con imagen.
-        let options = self.gsettings(&["get", SCHEMA, "picture-options"]).unwrap_or_default();
-        if options.trim_matches('\'') == "none" {
-            self.gsettings(&["set", SCHEMA, "picture-options", "zoom"])?;
+        // 1) Primero lo que muestra Caja (con un fotograma donde vaya vídeo): si en algún instante se
+        //    ve Caja, ya es la escena nueva. 2) Luego el estado, que hace que el vigilante cree, cambie
+        //    o cierre los reproductores.
+        self.render(&a, &mons)?;
+        video::save_assignments_in(&self.dir, &a)?;
+        let has_video = mons.iter().any(|m| {
+            a.get(&m.name).is_some_and(|p| WallpaperKind::from_path(p) == Some(WallpaperKind::Video))
+        });
+        if !self.video {
+            return Ok(());
         }
-        self.gsettings(&["set", SCHEMA, "draw-background", "true"])?;
-        self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&path)])?;
-        // Quitar el vídeo DESPUÉS de cambiar la imagen: al desaparecer ya se ve el fondo nuevo.
-        self.stop_video()?;
-        Ok(())
+        if has_video {
+            let exe = std::env::current_exe()?;
+            if !video::running() {
+                video::stop(); // restos de un vigilante anterior
+                video::spawn(&exe)?;
+            }
+            video::set_autostart(Some(&exe))?;
+            // Versiones anteriores apagaban el escritorio de Caja: si quedó apagado, se restaura.
+            if let Some(prev) = video::take_saved_icons() {
+                self.gsettings(&["set", SCHEMA, "show-desktop-icons", &prev])?;
+            }
+            Ok(())
+        } else {
+            self.stop_video()
+        }
     }
 
-    fn current(&self, _monitor: Option<&str>) -> Result<Option<Wallpaper>, WallpaperError> {
-        if self.video {
-            if let Some(v) = video::current_video() {
-                return Ok(Wallpaper::from_path(&v));
-            }
+    fn current(&self, monitor: Option<&str>) -> Result<Option<Wallpaper>, WallpaperError> {
+        let mons = self.monitors();
+        let a = self.assignments(&mons);
+        let name = match monitor {
+            Some(n) => n.to_string(),
+            None => mons.iter().find(|m| m.primary).or(mons.first()).map(|m| m.name.clone()).unwrap_or_default(),
+        };
+        if let Some(p) = a.get(&name) {
+            return Ok(Wallpaper::from_path(p));
         }
         let raw = self.gsettings(&["get", SCHEMA, "picture-filename"])?;
         Ok(parse_gvariant_string(&raw)
@@ -237,6 +413,10 @@ mod tests {
     }
     impl CommandRunner for &Fake {
         fn run(&self, program: &str, args: &[&str]) -> io::Result<Output> {
+            if program == "xrandr" {
+                let out = "Monitors: 1\n 0: +*eDP-1 1920/309x1080/174+0+0  eDP-1\n";
+                return Ok(Output { status: ExitStatus::from_raw(0), stdout: out.into(), stderr: vec![] });
+            }
             assert_eq!(program, "gsettings");
             self.calls.lock().unwrap().push(args.iter().map(|s| s.to_string()).collect());
             let stdout = if args.first() == Some(&"get") { self.get_reply.clone() } else { String::new() };
@@ -272,6 +452,12 @@ mod tests {
         let last = calls.last().unwrap();
         assert_eq!(last[..3], ["set", SCHEMA, "picture-filename"]);
         assert_eq!(parse_gvariant_string(&last[3]).unwrap(), img.to_string_lossy());
+        drop(calls);
+        // Por pantalla: la que existe funciona; una inexistente da error.
+        let b = MateBackend::with_runner(&f);
+        assert!(b.apply(&w, Some("eDP-1")).is_ok());
+        assert_eq!(b.current(Some("eDP-1")).unwrap().unwrap().path, img);
+        let calls = f.calls.lock().unwrap();
         // Con 'zoom' no se toca picture-options.
         assert!(!calls.iter().any(|c| c[0] == "set" && c[2] == "picture-options"));
     }
@@ -293,7 +479,7 @@ mod tests {
         let gone = Wallpaper::from_path(Path::new("/no/existe.png")).unwrap();
         assert!(matches!(b.apply(&gone, None), Err(WallpaperError::NotFound(_))));
         let img = Wallpaper::from_path(&tmpfile("b.png")).unwrap();
-        assert!(b.apply(&img, Some("HDMI-1")).is_err());
+        assert!(b.apply(&img, Some("HDMI-1")).is_err(), "no hay ninguna pantalla HDMI-1");
         assert!(f.calls.lock().unwrap().iter().all(|c| c[0] == "get"), "no debe escribir nada");
     }
 
