@@ -242,7 +242,12 @@ Window {
             readonly property bool isActive: !root.videoActive
             readonly property real cardH: Math.round(root.height * 0.26)
             readonly property real cardW: Math.round(cardH * 1.5)
-            readonly property real span: root.height * 0.40
+            // Separación fija entre tarjetas (la de 1080p con 5 imágenes): con pocas imágenes el carrusel
+            // se acorta en vez de repartirlas hasta los extremos. Huecos impares; con un número par se usa
+            // uno más para no esconder ninguna imagen.
+            readonly property int slots: Math.max(1, Math.min(5, count % 2 === 1 ? count : count + 1))
+            readonly property real step: cardH * 0.77
+            readonly property real span: Math.max(1, step * (slots - 1) / 2)
 
             anchors.horizontalCenter: parent.horizontalCenter
             width: cardW * 1.6
@@ -250,7 +255,7 @@ Window {
             z: isActive ? 2 : 1
             model: root.images
             interactive: true
-            pathItemCount: Math.max(1, Math.min(5, count % 2 === 1 ? count : count - 1))
+            pathItemCount: slots
             preferredHighlightBegin: 0.5
             preferredHighlightEnd: 0.5
             highlightRangeMode: PathView.StrictlyEnforceRange
@@ -298,7 +303,10 @@ Window {
             readonly property bool isActive: root.videoActive
             readonly property real cardH: Math.round(root.height * 0.34)
             readonly property real cardW: Math.round(cardH * 1.08)
-            readonly property real span: Math.min(root.width * 0.42, cardW * 2.4)
+            // Igual que el vertical: separación fija (la de 1080p con 7 vídeos) y huecos según cuántos haya.
+            readonly property int slots: Math.max(1, Math.min(7, count % 2 === 1 ? count : count + 1))
+            readonly property real step: Math.min(cardW * 0.68, root.width * 0.14)
+            readonly property real span: Math.max(1, step * (slots - 1) / 2)
 
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width
@@ -306,7 +314,7 @@ Window {
             z: isActive ? 2 : 1
             model: root.videos
             interactive: true
-            pathItemCount: Math.max(1, Math.min(7, count % 2 === 1 ? count : count - 1))
+            pathItemCount: slots
             preferredHighlightBegin: 0.5
             preferredHighlightEnd: 0.5
             highlightRangeMode: PathView.StrictlyEnforceRange

@@ -85,8 +85,17 @@ impl<R: CommandRunner> MateBackend<R> {
 
     fn apply_video(&self, w: &Wallpaper) -> Result<(), WallpaperError> {
         let exe = std::env::current_exe()?;
-        video::stop();
-        video::spawn(&exe, &w.path)?;
+        // 1) Primero el fondo de Caja (un fotograma del vídeo nuevo): si en algún instante se ve Caja,
+        //    muestra ya la misma escena y no una imagen vieja.
+        if let Some(frame) = video::still_frame(&w.path) {
+            let _ = self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&frame.to_string_lossy())]);
+        }
+        // 2) Si ya hay un vídeo, se cambia dentro del mismo reproductor (sin cerrar la ventana: sin corte).
+        //    Si no, se lanza el reproductor.
+        if !video::switch_to(&w.path) {
+            video::stop();
+            video::spawn(&exe, &w.path)?;
+        }
         // Versiones anteriores apagaban el escritorio de Caja: si quedó apagado por NekoWall, se restaura
         // (ahora Caja sigue activo debajo del vídeo y recibe los clics).
         if let Some(prev) = video::take_saved_icons() {
@@ -94,11 +103,6 @@ impl<R: CommandRunner> MateBackend<R> {
         }
         video::remember_video(Some(&w.path))?;
         video::set_autostart(Some(&exe), Some(&w.path))?;
-        // Debajo del vídeo, Caja muestra un fotograma del mismo vídeo: al «mostrar escritorio» (Meta+Alt+D)
-        // el cambio es suave. Si ffmpeg falla, se queda la imagen que hubiera.
-        if let Some(frame) = video::still_frame(&w.path) {
-            let _ = self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&frame.to_string_lossy())]);
-        }
         Ok(())
     }
 
@@ -187,7 +191,6 @@ impl<R: CommandRunner> WallpaperBackend for MateBackend<R> {
         if wallpaper.kind == WallpaperKind::Video {
             return self.apply_video(wallpaper);
         }
-        self.stop_video()?;
         let path = wallpaper.path.to_string_lossy();
         // Si el usuario tenía «sin imagen», Caja no mostraría nada: forzar un modo con imagen.
         let options = self.gsettings(&["get", SCHEMA, "picture-options"]).unwrap_or_default();
@@ -196,6 +199,8 @@ impl<R: CommandRunner> WallpaperBackend for MateBackend<R> {
         }
         self.gsettings(&["set", SCHEMA, "draw-background", "true"])?;
         self.gsettings(&["set", SCHEMA, "picture-filename", &gvariant_string(&path)])?;
+        // Quitar el vídeo DESPUÉS de cambiar la imagen: al desaparecer ya se ve el fondo nuevo.
+        self.stop_video()?;
         Ok(())
     }
 
