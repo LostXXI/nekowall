@@ -328,7 +328,7 @@ ApplicationWindow {
                 Label {
                     text: (Bridge.currentId ? "Fondo actual: " + (win.nameOf(Bridge.currentId) || "fuera de la biblioteca")
                                             : "Fondo actual: desconocido")
-                          + (Bridge.multiScreen ? "  (" + Bridge.targetLabel + ")" : "")
+                          + (Bridge.screenPicker ? "  (" + Bridge.targetLabel + ")" : "")
                     elide: Text.ElideRight
                     Layout.maximumWidth: win.width * 0.4
                 }

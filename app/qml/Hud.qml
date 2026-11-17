@@ -156,7 +156,7 @@ Window {
         function onStatusChanged() { if (!root.userMoved) root.focusCurrent() }
         function onApplied(ok, id, msg) {
             if (ok) {
-                root.showMessage(Bridge.multiScreen ? "Fondo aplicado en " + Bridge.targetLabel.toLowerCase() + " ✓"
+                root.showMessage(Bridge.screenPicker ? "Fondo aplicado en " + Bridge.targetLabel.toLowerCase() + " ✓"
                                                     : "Fondo aplicado ✓", false)
                 closeTimer.start()
             } else {
@@ -202,7 +202,7 @@ Window {
             if (e.key === Qt.Key_F && root.selected) {
                 Bridge.setFavorite(root.selected.id, !root.selected.favorite)
                 e.accepted = true
-            } else if (e.key === Qt.Key_P && Bridge.multiScreen) {
+            } else if (e.key === Qt.Key_P && Bridge.screenPicker) {
                 Bridge.cycleTarget(); e.accepted = true
             } else if (e.key === Qt.Key_Home) {
                 root.userMoved = true; root.activeView.currentIndex = 0; e.accepted = true
@@ -410,7 +410,7 @@ Window {
         Skeuo {
             id: screenPlate
             z: 5
-            visible: Bridge.multiScreen
+            visible: Bridge.screenPicker
             anchors { right: parent.right; top: parent.top; margins: parent.height * 0.05 }
             height: 40
             width: screenText.implicitWidth + 32
@@ -521,7 +521,7 @@ Window {
             spacing: 22
             Repeater {
                 model: [["← →", "Vídeos"], ["↑ ↓", "Imágenes"], ["Tab", "Cambiar"], ["Enter", "Aplicar"],
-                        ["F", "Favorito"]].concat(Bridge.multiScreen ? [["P", "Pantalla"]] : []).concat([["Esc", "Cerrar"]])
+                        ["F", "Favorito"]].concat(Bridge.screenPicker ? [["P", "Pantalla"]] : []).concat([["Esc", "Cerrar"]])
                 Row {
                     spacing: 8
                     Skeuo {                  // tecla física (como las teclas de atajo de SkeuoCord)

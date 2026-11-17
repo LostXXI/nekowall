@@ -83,9 +83,9 @@ bool Bridge::multiScreen() const
     return m_perMonitor && QGuiApplication::screens().size() > 1;
 }
 
-QString Bridge::resolvedScreen() const
+QString Bridge::chosenScreen() const
 {
-    if (!multiScreen() || m_target == QStringLiteral("*"))
+    if (!m_perMonitor || m_target == QStringLiteral("*"))
         return QString();
     QStringList names;
     for (const QScreen *s : QGuiApplication::screens())
@@ -97,11 +97,17 @@ QString Bridge::resolvedScreen() const
     return QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->name() : QString();
 }
 
+QString Bridge::resolvedScreen() const
+{
+    // Con una sola pantalla se aplica «a todas» (el camino de siempre): el resultado es el mismo.
+    return multiScreen() ? chosenScreen() : QString();
+}
+
 QString Bridge::targetLabel() const
 {
-    if (!multiScreen())
+    if (!m_perMonitor)
         return QString();
-    const QString r = resolvedScreen();
+    const QString r = chosenScreen();
     if (r.isEmpty())
         return QStringLiteral("Todas las pantallas");
     for (const QVariant &v : screens()) {
@@ -132,13 +138,13 @@ void Bridge::setHostScreen(const QString &s)
 
 void Bridge::cycleTarget()
 {
-    if (!multiScreen())
+    if (!m_perMonitor)
         return;
     QStringList order;
     for (const QScreen *s : QGuiApplication::screens())
         order << s->name();
     order << QStringLiteral("*");
-    const QString now = resolvedScreen().isEmpty() ? QStringLiteral("*") : resolvedScreen();
+    const QString now = chosenScreen().isEmpty() ? QStringLiteral("*") : chosenScreen();
     setTarget(order.value((order.indexOf(now) + 1) % order.size()));
 }
 

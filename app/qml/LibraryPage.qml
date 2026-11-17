@@ -83,7 +83,7 @@ Item {
             // Varias pantallas: dónde se aplica el fondo. Por defecto, la pantalla de esta ventana.
             ComboBox {
                 id: screenBox
-                visible: Bridge.multiScreen
+                visible: Bridge.screenPicker
                 // [{text, value}]: value "" = esta pantalla, nombre = esa pantalla, "*" = todas
                 readonly property var options: [{ text: "Esta pantalla (" + Bridge.hostScreen + ")", value: "" }]
                     .concat(Bridge.screens.map(s => ({ text: s.label + (s.primary ? " (principal)" : ""), value: s.name })))

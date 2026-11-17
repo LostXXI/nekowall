@@ -23,6 +23,8 @@ class Bridge : public QObject {
     // o el nombre de una pantalla. hostScreen: pantalla en la que está la ventana (lo pone el QML).
     Q_PROPERTY(QVariantList screens READ screens NOTIFY screensChanged)
     Q_PROPERTY(bool multiScreen READ multiScreen NOTIFY screensChanged)
+    // Mostrar los botones de pantalla (siempre que el escritorio admita fondos por pantalla, aunque haya una).
+    Q_PROPERTY(bool screenPicker READ screenPicker NOTIFY screensChanged)
     Q_PROPERTY(QString target READ target WRITE setTarget NOTIFY targetChanged)
     Q_PROPERTY(QString hostScreen READ hostScreen WRITE setHostScreen NOTIFY targetChanged)
     Q_PROPERTY(QString targetLabel READ targetLabel NOTIFY targetChanged)
@@ -69,6 +71,9 @@ public:
     QString currentId() const;
     QVariantList screens() const;
     bool multiScreen() const;
+    bool screenPicker() const { return m_perMonitor; }
+    // Pantalla elegida (aunque haya una sola); "" = todas.
+    QString chosenScreen() const;
     QString target() const { return m_target; }
     void setTarget(const QString &t);
     QString hostScreen() const { return m_hostScreen; }
