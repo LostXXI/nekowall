@@ -172,12 +172,60 @@ fn running_pid() -> Option<i32> {
 }
 
 /// Detiene la reproducción (el proceso vigilante y, con él, xwinwrap y mpv).
+/// (pid, ppid, uid) de todos los procesos, leídos de /proc.
+fn processes() -> Vec<(i32, i32, u32, String)> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/proc") else { return out };
+    for e in rd.flatten() {
+        let Ok(pid) = e.file_name().to_string_lossy().parse::<i32>() else { continue };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { continue };
+        // «pid (comm) estado ppid …»: el nombre puede llevar espacios, se corta tras el último ')'.
+        let Some(rest) = stat.rsplit_once(')').map(|(_, r)| r) else { continue };
+        let ppid = rest.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let uid = std::fs::read_to_string(format!("/proc/{pid}/status"))
+            .ok()
+            .and_then(|st| st.lines().find(|l| l.starts_with("Uid:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+            .unwrap_or(u32::MAX);
+        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).map(|c| String::from_utf8_lossy(&c).replace('\0', " ")).unwrap_or_default();
+        out.push((pid, ppid, uid, cmd));
+    }
+    out
+}
+
+fn my_uid() -> u32 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|st| st.lines().find(|l| l.starts_with("Uid:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+        .unwrap_or(u32::MAX)
+}
+
+/// Detiene la reproducción: el vigilante y todos sus descendientes (xwinwrap, mpv, xprop), aunque no
+/// sea líder de su grupo (p. ej. si lo lanzó el inicio de sesión), y cualquier vigilante perdido.
 pub fn stop() {
-    if let Some(pid) = running_pid() {
-        // SIGTERM al grupo de procesos: el vigilante es líder de su grupo (setsid).
-        let _ = Command::new("kill").args(["-TERM", "--", &format!("-{pid}")]).status();
+    let procs = processes();
+    let me = std::process::id() as i32;
+    let uid = my_uid();
+    let mut targets: Vec<i32> = procs
+        .iter()
+        .filter(|(pid, _, u, cmd)| *u == uid && *pid != me && cmd.contains(" _mate-video "))
+        .map(|(pid, ..)| *pid)
+        .collect();
+    // Añadir descendientes (hasta que no aparezcan más).
+    let mut i = 0;
+    while i < targets.len() {
+        let parent = targets[i];
+        for (pid, ppid, ..) in &procs {
+            if *ppid == parent && !targets.contains(pid) {
+                targets.push(*pid);
+            }
+        }
+        i += 1;
+    }
+    if !targets.is_empty() {
+        let args: Vec<String> = std::iter::once("-TERM".to_string()).chain(targets.iter().map(|p| p.to_string())).collect();
+        let _ = Command::new("kill").args(&args).stderr(Stdio::null()).status();
         for _ in 0..20 {
-            if running_pid().is_none() {
+            if targets.iter().all(|p| !Path::new(&format!("/proc/{p}")).exists()) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -185,6 +233,36 @@ pub fn stop() {
     }
     let _ = std::fs::remove_file(pid_file());
     let _ = std::fs::remove_file(mpv_socket());
+    let _ = std::fs::remove_file(peek_file());
+}
+
+/// Cambia el vídeo del reproductor que ya está en marcha (sin cerrarlo: sin parpadeo).
+/// Devuelve `false` si no hay reproductor al que pedírselo.
+pub fn switch_to(video: &Path) -> bool {
+    if running_pid().is_none() {
+        return false;
+    }
+    let Ok(mut s) = UnixStream::connect(mpv_socket()) else { return false };
+    let cmd = format!(
+        "{{\"command\":[\"loadfile\",{}]}}\n",
+        json_string(&video.to_string_lossy())
+    );
+    s.write_all(cmd.as_bytes()).is_ok()
+}
+
+/// Texto → cadena JSON (para el IPC de mpv).
+fn json_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Lanza `<exe> _mate-video <ruta>` en segundo plano, en su propia sesión.
@@ -295,22 +373,47 @@ fn gsettings(args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-/// Si la ventana de escritorio de Caja quedó ENCIMA del vídeo (Caja arrancó o se reinició después),
-/// se recrea: Marco coloca la nueva debajo y el vídeo vuelve a verse. Solo si Caja dibuja escritorio.
+/// Si la ventana de escritorio de Caja quedó ENCIMA del vídeo (Marco la sube al cerrarse cualquier
+/// ventana), se sube el vídeo con `windowraise`: no toca Caja, así que los iconos no parpadean.
+/// Solo si eso no funciona se recrea el escritorio de Caja (Marco pone la nueva debajo).
+fn caja_above(own: &str) -> Option<bool> {
+    let stack = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST_STACKING"])); // de abajo a arriba
+    let video_at = stack.iter().position(|w| w == own)?;
+    Some(stack[video_at + 1..].iter().any(|w| xprop(&["-id", w, "WM_CLASS"]).contains("\"desktop_window\"")))
+}
+
 fn ensure_video_above_caja(own: &str) {
-    if gsettings(&["get", "org.mate.background", "show-desktop-icons"]) != "true" {
+    if caja_above(own) != Some(true) {
         return;
     }
-    let stack = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST_STACKING"])); // de abajo a arriba
-    let Some(video_at) = stack.iter().position(|w| w == own) else { return };
-    let caja_above = stack[video_at + 1..]
-        .iter()
-        .any(|w| xprop(&["-id", w, "WM_CLASS"]).contains("\"desktop_window\""));
-    if caja_above {
+    xdotool(&["windowraise", own]);
+    std::thread::sleep(Duration::from_millis(60));
+    if caja_above(own) == Some(true) && gsettings(&["get", "org.mate.background", "show-desktop-icons"]) == "true" {
         gsettings(&["set", "org.mate.background", "show-desktop-icons", "false"]);
         std::thread::sleep(Duration::from_millis(400));
         gsettings(&["set", "org.mate.background", "show-desktop-icons", "true"]);
     }
+}
+
+/// Avisa (por el canal) cada vez que cambia el orden de las ventanas: `xprop -spy` imprime una línea
+/// por cambio, así se corrige al instante en lugar de esperar al siguiente sondeo.
+fn spy_stacking(tx: std::sync::mpsc::Sender<()>) -> Option<Child> {
+    let mut child = Command::new("xprop")
+        .args(["-root", "-spy", "_NET_CLIENT_LIST_STACKING"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let out = child.stdout.take()?;
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for _ in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+            if tx.send(()).is_err() {
+                break;
+            }
+        }
+    });
+    Some(child)
 }
 
 fn xdotool(args: &[&str]) {
@@ -405,8 +508,11 @@ pub fn run_daemon(video: &Path) -> Result<(), String> {
         ensure_video_above_caja(id);
     }
 
-    // Bucle cada 200 ms: «mostrar escritorio» responde rápido; la pausa se decide cada segundo y el
-    // orden respecto a Caja cada 5 s.
+    // Cambios de orden de ventanas → corregir al momento (y además un sondeo de respaldo cada 5 s).
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut spy = spy_stacking(tx);
+
+    // Bucle: «mostrar escritorio» y el orden se atienden al momento; la pausa se decide cada segundo.
     let mut paused = false;
     let mut peeking = false;
     let mut tick = 0u32;
@@ -446,7 +552,22 @@ pub fn run_daemon(video: &Path) -> Result<(), String> {
             }
         }
         tick = tick.wrapping_add(1);
-        std::thread::sleep(Duration::from_millis(200));
+        // Espera hasta 200 ms, o menos si cambió el orden de las ventanas.
+        if rx.recv_timeout(Duration::from_millis(200)).is_ok() {
+            while rx.try_recv().is_ok() {}
+            if !peeking {
+                if let Some(id) = own.as_deref() {
+                    // Subir el vídeo YA (una sola llamada, sin comprobar antes): si ya estaba arriba no
+                    // cambia nada. Luego se verifica, por si hiciera falta el último recurso.
+                    xdotool(&["windowraise", id]);
+                    ensure_video_above_caja(id);
+                }
+            }
+        }
+    }
+    if let Some(mut c) = spy.take() {
+        let _ = c.kill();
+        let _ = c.wait();
     }
     let _ = std::fs::remove_file(peek_file());
     let _ = std::fs::remove_file(pid_file());
@@ -456,6 +577,12 @@ pub fn run_daemon(video: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_strings_for_mpv() {
+        assert_eq!(json_string("/a/b c.mp4"), r#""/a/b c.mp4""#);
+        assert_eq!(json_string(r#"/x/"comillas"\barra.mp4"#), r#""/x/\"comillas\"\\barra.mp4""#);
+    }
 
     #[test]
     fn parses_window_lists() {

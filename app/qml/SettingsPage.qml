@@ -20,6 +20,31 @@ ScrollView {
         wrapMode: Text.Wrap
         opacity: 0.75
     }
+    component KeyCap: Rectangle {
+        property alias text: keyText.text
+        radius: 6
+        implicitWidth: keyText.implicitWidth + 16
+        implicitHeight: keyText.implicitHeight + 8
+        color: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.1)
+        border.color: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.25)
+        Label { id: keyText; anchors.centerIn: parent; font.weight: Font.DemiBold }
+    }
+    // Aviso destacado (borde y fondo ámbar): para limitaciones que el usuario debe conocer.
+    component Warning: Rectangle {
+        property alias text: warnText.text
+        Layout.fillWidth: true
+        implicitHeight: warnRow.implicitHeight + 20
+        radius: 8
+        color: Qt.rgba(0.95, 0.65, 0.15, 0.12)
+        border.color: Qt.rgba(0.95, 0.65, 0.15, 0.7)
+        RowLayout {
+            id: warnRow
+            anchors { fill: parent; margins: 10 }
+            spacing: 10
+            Label { text: "⚠"; font.pixelSize: 20; color: "#f0a020"; Layout.alignment: Qt.AlignTop }
+            Label { id: warnText; Layout.fillWidth: true; wrapMode: Text.Wrap }
+        }
+    }
     component PathLabel: TextField {
         Layout.fillWidth: true
         readOnly: true
@@ -37,14 +62,7 @@ ScrollView {
         RowLayout {
             spacing: 10
             Label { text: "Atajo de teclado:" }
-            Rectangle {
-                radius: 6
-                implicitWidth: sc.implicitWidth + 16
-                implicitHeight: sc.implicitHeight + 8
-                color: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.1)
-                border.color: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.25)
-                Label { id: sc; anchors.centerIn: parent; text: Bridge.shortcut; font.weight: Font.DemiBold }
-            }
+            KeyCap { text: Bridge.shortcut }
             Button {
                 text: "Registrar atajo"
                 icon.name: "input-keyboard"
@@ -57,6 +75,13 @@ ScrollView {
                 onClicked: Bridge.openShortcutSettings()
             }
             Button { text: "Abrir ahora"; icon.name: "view-preview"; onClicked: Bridge.openHud() }
+        }
+        RowLayout {
+            spacing: 10
+            visible: Bridge.backend === "mate"
+            Label { text: "Mostrar los iconos del escritorio (con vídeo de fondo):" }
+            KeyCap { text: "Meta+Alt+D" }
+            Label { text: "(se registra con «Registrar atajo»)"; opacity: 0.7 }
         }
 
         RowLayout {
@@ -85,9 +110,13 @@ ScrollView {
             visible: Bridge.backend === "mate" && !Bridge.videoPluginInstalled
             text: "Para fondos de vídeo en MATE instala mpv y xwinwrap:  doas xbps-install mpv xwinwrap"
         }
-        Hint {
+        Warning {
             visible: Bridge.backend === "mate" && Bridge.videoPluginInstalled
-            text: "En MATE el vídeo tapa los iconos del escritorio, pero siguen ahí: el clic derecho y los iconos funcionan. Pulsa Meta+Alt+D (tras «Registrar atajo») para pausar el vídeo y verlos; vuelve a pulsarlo para seguir."
+            text: "<b>En MATE, los iconos del escritorio y un fondo animado no pueden verse a la vez.</b> "
+                  + "El escritorio de MATE (Caja) no permite iconos con fondo transparente, así que el vídeo los tapa. "
+                  + "Siguen funcionando: el clic derecho del escritorio y el doble clic sobre un icono responden igual. "
+                  + "Pulsa <b>Meta+Alt+D</b> para pausar el vídeo y ver los iconos; vuelve a pulsarlo para seguir. "
+                  + "Con un fondo de imagen, los iconos se ven siempre."
         }
         Hint {
             visible: Bridge.backend === "plasma" && !Bridge.videoPluginInstalled

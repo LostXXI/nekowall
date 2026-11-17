@@ -1,19 +1,66 @@
 # NekoWall
 
-Gestor de fondos de pantalla **estáticos y animados** para **KDE Plasma 6 (Wayland)** y **MATE (X11)**,
-pensado para **Void Linux** / neko-void. Incluye una biblioteca con miniaturas y un **selector rápido** a pantalla completa
-(estilo «Dark Aero») que se abre con un atajo de teclado desde cualquier lugar.
+Fondos de pantalla **estáticos y animados (vídeo)** para **Void Linux** / neko-void, con una biblioteca y un
+**selector rápido** que se abre con **Meta+Alt+W** (Meta = tecla Windows).
 
-> Estado: versión 0.2 (temprana). **Un solo programa para los dos escritorios**: NekoWall detecta solo si
-> estás en KDE o en MATE (`XDG_CURRENT_DESKTOP`) y usa la parte adecuada. Se puede forzar con
-> `NEKOWALL_BACKEND=plasma|mate`.
+## 1. Antes de empezar: ¿funciona en mi PC?
 
-| Escritorio | Sesión | Imágenes | Vídeos | Selector (Meta+Alt+W) |
-| --- | --- | --- | --- | --- |
-| **KDE Plasma 6** | Wayland | ✅ | ✅ (plugin Smart Video Wallpaper Reborn) | ✅ cristal desenfocado |
-| **MATE** | X11 | ✅ | ✅ (mpv + xwinwrap) | ✅ fondo oscuro |
+| Necesitas | |
+| --- | --- |
+| **Sistema** | Void Linux o neko-void (en otras distribuciones, ver [instalación manual](#instalación-manual)) |
+| **Escritorio** | **KDE Plasma 6 (Wayland)** o **MATE (X11)**. XFCE, LXQt, i3, etc. aún **no** |
+| **Fondos de vídeo en KDE** | El plugin **Smart Video Wallpaper Reborn** (se instala a mano, [ver justo abajo](#vídeo-en-kde-plugin-obligatorio)) |
 
-**Elige tu escritorio:** [Instalar en KDE Plasma](#instalar-en-kde-plasma) · [Instalar en MATE](#instalar-en-mate)
+**Dependencias** (el script de instalación las instala solo; esto es por si quieres saber qué pone):
+
+- **Siempre:** `git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmpeg6 glib`
+- **KDE:** además `kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia`
+- **MATE:** además `mpv xwinwrap xprop xdotool`
+
+### Vídeo en KDE (plugin obligatorio)
+
+Para poner **vídeos** de fondo en KDE hace falta el plugin **Smart Video Wallpaper Reborn**, que no está en los
+repositorios de Void:
+
+1. Clic derecho en el escritorio → **Configurar el escritorio y el fondo de pantalla…**
+2. **Obtener nuevos complementos…** → busca **Smart Video Wallpaper Reborn** → **Instalar**.
+
+Sin el plugin, NekoWall funciona igual con imágenes. En MATE no hace falta nada de esto.
+
+## 2. Instalar (3 comandos)
+
+```bash
+git clone https://github.com/LostXXI/nekowall.git
+cd nekowall
+./instalar.sh
+```
+
+Responde **S** (sí) a las preguntas. El script instala lo que falte, compila NekoWall, lo añade al menú (y si
+quieres, un icono en el escritorio) y deja listos los atajos. Si quieres ver antes lo que hará sin tocar nada:
+`./instalar.sh --simular`.
+
+## 3. Primer uso
+
+1. Abre **NekoWall** desde el menú → **Añadir carpeta…** → elige tu carpeta de fondos.
+2. Pulsa **Aplicar** en un fondo, o abre el selector con **Meta+Alt+W**.
+3. **Solo en KDE:** cierra sesión y vuelve a entrar **una vez** para que funcione Meta+Alt+W.
+
+## 4. Si algo no funciona
+
+| Problema | Solución |
+| --- | --- |
+| Error «unresolvable shlib» al instalar | Tu Void no está actualizado. El script ofrece actualizarlo; di que sí (o `sudo xbps-install -Su`) |
+| Meta+Alt+W no hace nada en KDE | Cierra sesión y vuelve a entrar una vez |
+| En KDE los vídeos no se aplican | Falta el plugin de vídeo: [cómo instalarlo](#vídeo-en-kde-plugin-obligatorio) |
+| En MATE no veo los iconos del escritorio con un vídeo de fondo | Es normal: pulsa **Meta+Alt+D** para verlos (otra vez para volver al vídeo) |
+| `nekowall: command not found` en la terminal | Añade `export PATH="$HOME/.local/bin:$PATH"` a tu `~/.bashrc`. El menú y los atajos funcionan igual |
+
+¿Otro problema? Abre un [*issue*](https://github.com/LostXXI/nekowall/issues) y pega lo que sale al ejecutar
+`~/.local/bin/nekowall status` y `echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE`.
+
+---
+
+# Todo lo demás
 
 ## Funciones
 
@@ -28,9 +75,20 @@ pensado para **Void Linux** / neko-void. Incluye una biblioteca con miniaturas y
 - **CLI** (`nekowall`) para usar todo desde la terminal o desde scripts.
 - Cerrado no ocupa memoria: no deja procesos en segundo plano.
 
-## Instalar en KDE Plasma
+## Opciones de instalar.sh
 
-### 1. Dependencias
+`--simular` (muestra lo que haría sin tocar nada) · `--kde` / `--mate` (forzar escritorio) ·
+`--solo-dependencias` · `--si` (sin preguntas). Usa `sudo` o `doas` solo para instalar paquetes; no lo
+ejecutes como root.
+
+## Instalación manual
+
+Solo si no quieres usar `./instalar.sh` o no estás en Void (cambia `xbps-install` por el instalador de tu
+distribución; los nombres de paquetes pueden variar).
+
+### Instalar en KDE Plasma
+
+#### 1. Dependencias
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
@@ -38,26 +96,20 @@ sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarativ
     ffmpeg6 glib qt6-multimedia
 ```
 
-**Para fondos de vídeo** hace falta además el plugin **Smart Video Wallpaper Reborn**
-(`luisbocanegra.smart.video.wallpaper.reborn`), que no está en los repositorios de Void:
+Para vídeo en KDE, mira [el plugin](#vídeo-en-kde-plugin-obligatorio) más arriba.
 
-1. Clic derecho en el escritorio → **Configurar el escritorio y el fondo de pantalla…**
-2. **Obtener nuevos complementos…** → busca **Smart Video Wallpaper Reborn** → **Instalar**.
-
-Sin el plugin, NekoWall funciona igual con imágenes y avisa de que el vídeo no está disponible.
-
-### 2. Compilar e instalar
+#### 2. Compilar e instalar
 
 Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
 
-### 3. Atajo Meta+Alt+W
+#### 3. Atajo Meta+Alt+W
 
 El acceso del menú ya lleva el atajo: **cierra sesión y vuelve a entrar** una vez para que KDE lo active.
 Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
 
-## Instalar en MATE
+### Instalar en MATE
 
-### 1. Dependencias
+#### 1. Dependencias
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
@@ -66,17 +118,17 @@ sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarativ
 
 (En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
 
-### 2. Compilar e instalar
+#### 2. Compilar e instalar
 
 Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
 
-### 3. Atajo Meta+Alt+W
+#### 3. Atajo Meta+Alt+W
 
 Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerrar sesión. Registra dos atajos:
 **Meta+Alt+W** (selector) y **Meta+Alt+D** (mostrar escritorio, ver abajo). También puedes crearlos a mano en
 *Centro de control → Atajos de teclado* con los comandos `nekowall-gui --hud` y `nekowall peek`.
 
-### Cosas a saber en MATE
+#### Cosas a saber en MATE
 
 - Con un **vídeo** de fondo, el vídeo **tapa los iconos del escritorio**, pero siguen ahí: el **clic derecho**
   del escritorio y el doble clic sobre los iconos funcionan (los clics atraviesan el vídeo hasta Caja).
@@ -87,7 +139,7 @@ Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerr
   arrancar al iniciar sesión.
 - Sin compositor con desenfoque, el selector usa un fondo oscuro en lugar de cristal.
 
-## Compilar (los dos escritorios)
+### Compilar (los dos escritorios)
 
 ```bash
 git clone https://github.com/LostXXI/nekowall.git
@@ -109,7 +161,7 @@ Comprobar que todo funciona (opcional): `cargo test`. Probarlo sin instalar:
 ./app/build/nekowall-gui --hud                            # selector rápido
 ```
 
-## Instalar el programa (los dos escritorios)
+### Instalar el programa (los dos escritorios)
 
 Para tu usuario, sin `sudo`. Copia los dos programas **a la misma carpeta** (la interfaz busca `nekowall` a su
 lado) y crea el acceso del menú:
@@ -144,16 +196,11 @@ Para desinstalar: borra `~/.local/bin/nekowall`, `~/.local/bin/nekowall-gui` y
 si había un vídeo puesto). Tus datos están en `~/.local/share/nekowall/`, `~/.cache/nekowall/` y
 `~/.config/nekowall/`.
 
-## Primer uso
+## Atajos de la ventana
 
-1. Abre **NekoWall** desde el menú → **Añadir carpeta…** (o arrastra archivos a la ventana).
-2. Pulsa **Aplicar** en cualquier fondo, o abre el selector con **Meta+Alt+W**.
-3. En **Ajustes** puedes elegir cuándo se pausa el vídeo, qué hacer con vídeos grandes y la
-   ilustración del selector.
-
-Atajos de la ventana: Ctrl+F buscar · Ctrl+O añadir archivos · Ctrl+Mayús+O añadir carpeta ·
-Ctrl+H selector · F5 recargar · Ctrl+Z deshacer «quitar» · en la rejilla: Enter aplicar, F favorito,
-Supr quitar.
+Ctrl+F buscar · Ctrl+O añadir archivos · Ctrl+Mayús+O añadir carpeta · Ctrl+H selector · F5 recargar ·
+Ctrl+Z deshacer «quitar» · en la rejilla: Enter aplicar, F favorito, Supr quitar. En **Ajustes** puedes elegir
+cuándo se pausa el vídeo, qué hacer con vídeos grandes y la ilustración del selector.
 
 ## Uso desde la terminal
 
@@ -182,7 +229,7 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
   Meta+Alt+D los muestra.
 - En X11 sin compositor con desenfoque el selector usa un fondo oscuro en lugar de cristal.
 - Un solo monitor: el mismo fondo se aplica a todos los escritorios.
-- Los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
+- En KDE, los vídeos necesitan el plugin Smart Video Wallpaper Reborn.
 
 ## Licencia
 
@@ -198,7 +245,11 @@ Pendiente de definir (el `Cargo.toml` indica provisionalmente GPL-3.0-or-later).
 - `crates/nekowall-core`: orquestación (`Service`: aplicar, siguiente/anterior, restaurar).
 - `crates/nekowall-mate`: backend de MATE. Imágenes: gsettings `org.mate.background picture-filename`. Vídeo
   (`video.rs`): `xwinwrap` (ventana tipo escritorio, sin entrada `-ni`) + `mpv` en bucle sin audio, ENCIMA de la
-  ventana de escritorio de Caja (si Caja queda encima, se recrea y Marco la pone debajo); los clics atraviesan
+  ventana de escritorio de Caja. Marco sube Caja al cerrarse cualquier ventana: el vigilante escucha los cambios
+  de apilado (`xprop -spy _NET_CLIENT_LIST_STACKING`) y sube el vídeo con `xdotool windowraise` (~50 ms, sin tocar
+  Caja; recrear el escritorio de Caja queda como último recurso). Vídeo→vídeo se cambia por IPC (`loadfile`)
+  en el mismo mpv; al pasar a imagen se cambia primero el fondo de Caja y luego se quita el vídeo. `stop` mata
+  el vigilante y todos sus descendientes por /proc (no depende del grupo de procesos). Los clics atraviesan
   el vídeo hasta Caja. Caja pinta el fondo estático bajo los iconos (pseudo-transparencia), por eso no puede
   mostrarlos sobre el vídeo: `peek` desmapea y pausa el vídeo; bajo él Caja muestra un fotograma del vídeo. Un proceso propio `nekowall _mate-video` pausa
   por IPC de mpv según las ventanas (xprop: maximizada/completa, activa, cualquiera, nunca) y la batería; se
