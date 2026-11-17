@@ -234,6 +234,14 @@ ApplicationWindow {
                 ToolTip.text: "Abrir el HUD (" + Bridge.shortcut + " desde cualquier lugar)"
             }
             Button {
+                text: "Mis fondos"
+                icon.name: "folder-pictures"
+                visible: Bridge.defaultFolder !== ""
+                onClicked: Bridge.openDefaultFolder()
+                ToolTip.visible: hovered
+                ToolTip.text: "Abre " + Bridge.defaultFolder + ": lo que copies ahí aparece solo en NekoWall"
+            }
+            Button {
                 text: "Añadir archivos…"
                 icon.name: "list-add"
                 onClicked: filesDialog.open()

@@ -10,6 +10,11 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
 - **Biblioteca**: búsqueda, filtros (animados / estáticos / favoritos), orden, miniaturas en caché,
   importar archivos o carpetas (también arrastrando), quitar con «deshacer». Los archivos **no se copian**
   ni se modifican: se indexan donde están.
+- **Carpetas vigiladas**: las carpetas añadidas se revisan al abrir NekoWall y, mientras está abierto, al
+  cambiar: lo que copies aparece solo y lo que borres desaparece. Lo que quitas a mano no vuelve.
+- **Carpeta propia**: `nekowallpapers` dentro de la carpeta de Imágenes (`XDG_PICTURES_DIR`, normalmente
+  `~/Pictures`). Se crea la primera vez y se vigila siempre; el botón **Mis fondos** la abre. Si la dejas de
+  vigilar (`nekowall folders --forget …`), no se vuelve a crear.
 - **Vídeos grandes**: al importar un vídeo mayor que tu pantalla (p. ej. 4K) ofrece crear una copia a tu
   resolución (30 o 60 fps) junto al original; también desde clic derecho → «Optimizar para mi pantalla…».
 - **Ahorro**: pausa del vídeo con ventanas maximizadas / activas / visibles y con batería baja.
@@ -152,6 +157,8 @@ nekowall apply <id|ruta>             Aplica un fondo
 nekowall next | previous | restore   Siguiente / anterior / volver al fondo anterior
 nekowall favorite <id> [--off]       Marca o desmarca favorito
 nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
+nekowall sync                        Busca fondos nuevos (o borrados) en las carpetas añadidas
+nekowall folders [--forget <ruta>]   Carpetas que se revisan (o deja de revisar una)
 nekowall status [--json]             Escritorio, capacidades y fondo actual
 nekowall thumbs [--force]            Genera las miniaturas que falten
 nekowall optimize <id|ruta> [--height 1080] [--fps 30] [--replace-in-library]

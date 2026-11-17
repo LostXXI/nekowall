@@ -58,7 +58,21 @@ pub struct ImportReport {
     pub added: usize,
     pub duplicates: usize,
     pub unsupported: usize,
+    /// Solo en la revisión de carpetas: archivos dejados para luego por ser muy recientes.
+    pub recent: usize,
     pub errors: Vec<(PathBuf, String)>,
+}
+
+#[derive(Debug, Default)]
+pub struct SyncReport {
+    pub added: usize,
+    /// Archivos recién modificados (quizá aún copiándose): se añadirán en la próxima revisión.
+    pub recent: usize,
+    /// Quitados porque se borraron de una carpeta revisada.
+    pub removed: usize,
+    pub missing: usize,
+    /// Carpetas y subcarpetas revisadas (para vigilarlas desde la interfaz).
+    pub dirs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -86,6 +100,14 @@ CREATE TABLE IF NOT EXISTS state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Carpetas añadidas por el usuario: se vuelven a revisar para encontrar fondos nuevos.
+CREATE TABLE IF NOT EXISTS folders (
+    path TEXT PRIMARY KEY
+);
+-- Archivos que el usuario quitó: la revisión de carpetas no los vuelve a añadir.
+CREATE TABLE IF NOT EXISTS ignored (
+    path TEXT PRIMARY KEY
+);
 ";
 
 impl Library {
@@ -105,23 +127,51 @@ impl Library {
         Ok(Self { conn })
     }
 
-    /// Indexa un archivo o una carpeta (recursivo) sin copiar nada.
+    /// Indexa un archivo o una carpeta (recursivo) sin copiar nada. Las carpetas quedan recordadas
+    /// para `sync_folders`; un archivo importado a mano deja de estar en la lista de ignorados.
     pub fn import_path(&mut self, path: &Path) -> Result<ImportReport, LibraryError> {
+        self.import_inner(path, false)
+    }
+
+    /// `skip_recent`: deja para luego los archivos modificados hace menos de 3 s (aún copiándose).
+    fn import_inner(&mut self, path: &Path, skip_recent: bool) -> Result<ImportReport, LibraryError> {
         let path = fs::canonicalize(path).map_err(|_| LibraryError::NotFound(path.to_path_buf()))?;
         let mut report = ImportReport::default();
         let mut files = Vec::new();
 
+        let tx = self.conn.transaction()?;
         if path.is_dir() {
             collect_files(&path, &mut files, &mut report);
             files.sort();
+            if let Some(p) = path.to_str() {
+                tx.execute("INSERT OR IGNORE INTO folders (path) VALUES (?1)", params![p])?;
+            }
+            let ignored: std::collections::HashSet<String> = {
+                let mut st = tx.prepare("SELECT path FROM ignored")?;
+                let it = st.query_map([], |r| r.get::<_, String>(0))?;
+                it.collect::<Result<_, _>>()?
+            };
+            files.retain(|f| f.to_str().is_none_or(|s| !ignored.contains(s)));
+            if skip_recent {
+                let now = SystemTime::now();
+                let before = files.len();
+                files.retain(|f| {
+                    fs::metadata(f)
+                        .and_then(|m| m.modified())
+                        .map_or(true, |t| now.duration_since(t).is_ok_and(|d| d.as_secs() >= 3))
+                });
+                report.recent = before - files.len();
+            }
         } else {
             if WallpaperKind::from_path(&path).is_none() {
                 return Err(LibraryError::Unsupported(path));
             }
+            if let Some(p) = path.to_str() {
+                tx.execute("DELETE FROM ignored WHERE path = ?1", params![p])?;
+            }
             files.push(path);
         }
 
-        let tx = self.conn.transaction()?;
         for file in files {
             let Some(kind) = WallpaperKind::from_path(&file) else {
                 report.unsupported += 1;
@@ -220,9 +270,123 @@ impl Library {
         Ok(missing)
     }
 
-    /// Quita de la biblioteca (nunca borra el archivo original).
+    /// Quita de la biblioteca (nunca borra el archivo original). El archivo queda «ignorado» para que
+    /// la revisión de carpetas no lo vuelva a añadir.
     pub fn remove(&self, id: &str) -> Result<bool, LibraryError> {
+        let path: Option<String> = self
+            .conn
+            .query_row("SELECT path FROM wallpapers WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()?;
+        let Some(path) = path else { return Ok(false) };
+        self.conn.execute("INSERT OR IGNORE INTO ignored (path) VALUES (?1)", params![path])?;
         Ok(self.conn.execute("DELETE FROM wallpapers WHERE id = ?1", params![id])? > 0)
+    }
+
+    /// Carpetas recordadas (las que se añadieron con «Añadir carpeta…»).
+    pub fn folders(&self) -> Result<Vec<PathBuf>, LibraryError> {
+        let mut st = self.conn.prepare("SELECT path FROM folders ORDER BY path")?;
+        let it = st.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(it.collect::<Result<Vec<_>, _>>()?.into_iter().map(PathBuf::from).collect())
+    }
+
+    /// Deja de revisar una carpeta (sus fondos siguen en la biblioteca). `false` si no estaba.
+    pub fn forget_folder(&self, path: &Path) -> Result<bool, LibraryError> {
+        let p = path.to_string_lossy();
+        let p = p.trim_end_matches('/');
+        Ok(self.conn.execute("DELETE FROM folders WHERE path = ?1", params![p])? > 0)
+    }
+
+    /// Vuelve a revisar las carpetas recordadas: añade los fondos nuevos (salvo los quitados a mano)
+    /// y marca los que ya no existen. Una carpeta que no existe (disco sin montar) se salta.
+    pub fn sync_folders(&mut self) -> Result<SyncReport, LibraryError> {
+        self.adopt_old_folders()?;
+        let mut report = SyncReport::default();
+        for dir in self.folders()? {
+            if !dir.is_dir() {
+                continue;
+            }
+            let r = self.import_inner(&dir, true)?;
+            report.added += r.added;
+            report.recent += r.recent;
+            // Borrados de una carpeta que sí está (no un disco sin montar): fuera de la biblioteca.
+            let prefix = format!("{}/", dir.to_string_lossy().trim_end_matches('/'));
+            let gone: Vec<String> = {
+                let mut st = self.conn.prepare("SELECT path FROM wallpapers WHERE substr(path, 1, length(?1)) = ?1")?;
+                let it = st.query_map(params![prefix], |r| r.get::<_, String>(0))?;
+                it.collect::<Result<Vec<_>, _>>()?.into_iter().filter(|p| !Path::new(p).exists()).collect()
+            };
+            for p in gone {
+                report.removed += self.conn.execute("DELETE FROM wallpapers WHERE path = ?1", params![p])?;
+            }
+            report.dirs.push(dir.clone());
+            collect_dirs(&dir, &mut report.dirs);
+        }
+        report.missing = self.refresh_missing()?;
+        Ok(report)
+    }
+
+    /// Bibliotecas creadas antes de recordar carpetas: una carpeta se recuerda si todos los fondos que
+    /// contiene (subcarpetas incluidas, porque la revisión es recursiva) están en la biblioteca, o
+    /// llegaron DESPUÉS de importarla (los copió el usuario luego). Si hay alguno más antiguo sin
+    /// importar, se eligieron archivos sueltos y no se adopta. Los originales sustituidos por su copia
+    /// optimizada («nombre (1080p30).mp4») pasan a ignorados. Solo se hace una vez.
+    fn adopt_old_folders(&mut self) -> Result<(), LibraryError> {
+        use std::os::unix::fs::MetadataExt;
+        const KEY: &str = "folders_adopted";
+        if self.state(KEY)?.is_some() {
+            return Ok(());
+        }
+        let rows: Vec<(String, i64)> = {
+            let mut st = self.conn.prepare("SELECT path, added_at FROM wallpapers")?;
+            let it = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            it.collect::<Result<_, _>>()?
+        };
+        let mut known: std::collections::HashSet<String> = rows.iter().map(|(p, _)| p.clone()).collect();
+        {
+            let mut st = self.conn.prepare("SELECT path FROM ignored")?;
+            for p in st.query_map([], |r| r.get::<_, String>(0))? {
+                known.insert(p?);
+            }
+        }
+        // Originales de copias optimizadas que están en la biblioteca → ignorados.
+        for (p, _) in &rows {
+            let Some(orig_stem) = optimized_source_stem(p) else { continue };
+            let Some(dir) = Path::new(p).parent() else { continue };
+            let Ok(rd) = fs::read_dir(dir) else { continue };
+            for e in rd.flatten() {
+                let q = e.path();
+                let same = q.file_stem().is_some_and(|s| s.to_string_lossy() == orig_stem);
+                if same && WallpaperKind::from_path(&q) == Some(WallpaperKind::Video) {
+                    if let Some(qs) = q.to_str().filter(|qs| !known.contains(*qs)) {
+                        self.conn.execute("INSERT OR IGNORE INTO ignored (path) VALUES (?1)", params![qs])?;
+                        known.insert(qs.to_string());
+                    }
+                }
+            }
+        }
+        // Carpeta → momento de la última importación de algo de ella.
+        let mut parents: std::collections::BTreeMap<PathBuf, i64> = Default::default();
+        for (p, t) in &rows {
+            if let Some(dir) = Path::new(p).parent() {
+                let e = parents.entry(dir.to_path_buf()).or_insert(*t);
+                *e = (*e).max(*t);
+            }
+        }
+        for (dir, imported_at) in parents {
+            let mut files = Vec::new();
+            collect_files(&dir, &mut files, &mut ImportReport::default());
+            let ok = files.iter().all(|f| {
+                WallpaperKind::from_path(f).is_none()
+                    || f.to_str().is_some_and(|s| known.contains(s))
+                    || fs::metadata(f).is_ok_and(|m| m.ctime() > imported_at)
+            });
+            if ok {
+                if let Some(p) = dir.to_str() {
+                    self.conn.execute("INSERT OR IGNORE INTO folders (path) VALUES (?1)", params![p])?;
+                }
+            }
+        }
+        self.set_state(KEY, "1")
     }
 
     /// Actualiza las rutas de los fondos que están dentro de `old_dir` para que apunten a `new_dir`
@@ -250,6 +414,19 @@ impl Library {
                 params![new_id, new_path, missing as i64, id],
             )?;
             moved.push((id, new_id));
+        }
+        for table in ["folders", "ignored"] {
+            let paths: Vec<String> = {
+                let mut st = tx.prepare(&format!("SELECT path FROM {table}"))?;
+                let it = st.query_map([], |r| r.get::<_, String>(0))?;
+                it.collect::<Result<_, _>>()?
+            };
+            for p in paths {
+                let moved_to = if p == old { Some(new.clone()) } else { p.strip_prefix(&prefix).map(|r| format!("{new}/{r}")) };
+                if let Some(np) = moved_to {
+                    tx.execute(&format!("UPDATE OR REPLACE {table} SET path = ?1 WHERE path = ?2"), params![np, p])?;
+                }
+            }
         }
         for key in ["current_path", "previous_path"] {
             let v: Option<String> = tx
@@ -318,11 +495,37 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>, report: &mut ImportReport) 
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        // Ocultos fuera: archivos a medio escribir (p. ej. «.nombre.part.mp4» de `optimize`) y carpetas
+        // como .thumbnails o .git.
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
         match entry.file_type() {
             Ok(t) if t.is_dir() => collect_files(&path, out, report),
             Ok(t) if t.is_file() => out.push(path),
             Ok(_) => {}
             Err(e) => report.errors.push((path, e.to_string())),
+        }
+    }
+}
+
+/// «/x/Nombre (1080p30).mp4» → «Nombre» (nombre de las copias que crea `optimize`).
+fn optimized_source_stem(path: &str) -> Option<String> {
+    let name = Path::new(path).file_name()?.to_str()?;
+    let base = name.strip_suffix(").mp4")?;
+    let open = base.rfind(" (")?;
+    let (h, f) = base[open + 2..].split_once('p')?;
+    (!h.is_empty() && !f.is_empty() && h.bytes().chain(f.bytes()).all(|b| b.is_ascii_digit()))
+        .then(|| base[..open].to_string())
+}
+
+/// Subcarpetas (recursivo, sin seguir enlaces simbólicos).
+fn collect_dirs(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        if e.file_type().is_ok_and(|t| t.is_dir()) && !e.file_name().to_string_lossy().starts_with('.') {
+            out.push(e.path());
+            collect_dirs(&e.path(), out);
         }
     }
 }
@@ -340,9 +543,12 @@ mod tests {
         d
     }
 
+    /// Crea el archivo con fecha de hace un minuto (la revisión deja para luego lo muy reciente).
     fn touch(p: &Path) {
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, b"x").unwrap();
+        let f = fs::File::options().write(true).open(p).unwrap();
+        f.set_modified(SystemTime::now() - std::time::Duration::from_secs(60)).unwrap();
     }
 
     #[test]
@@ -452,5 +658,84 @@ mod tests {
         assert_eq!(lib.state("current_path").unwrap().unwrap(), b.join("x.mp4").to_string_lossy());
         assert_eq!(lib.counts().unwrap().total, 2);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn sync_finds_new_files_and_respects_removed_ones() {
+        let d = tmp();
+        touch(&d.join("a.png"));
+        let mut lib = Library::open_in_memory().unwrap();
+        lib.import_path(&d).unwrap();
+        assert_eq!(lib.folders().unwrap(), vec![fs::canonicalize(&d).unwrap()]);
+
+        // Archivos copiados después a la carpeta (también en subcarpetas).
+        touch(&d.join("b.png"));
+        touch(&d.join("sub/c.mp4"));
+        touch(&d.join(".c.part.mp4")); // conversión a medias: oculto, no cuenta
+        let r = lib.sync_folders().unwrap();
+        assert_eq!(r.added, 2);
+        assert!(r.dirs.contains(&fs::canonicalize(d.join("sub")).unwrap()));
+
+        // Quitar uno: la revisión no lo vuelve a añadir…
+        let b = lib.get_by_path(&fs::canonicalize(d.join("b.png")).unwrap()).unwrap().unwrap();
+        lib.remove(&b.wallpaper.id).unwrap();
+        assert_eq!(lib.sync_folders().unwrap().added, 0);
+        // Un archivo que aún se está copiando espera a la próxima revisión.
+        fs::write(d.join("copiando.mp4"), b"x").unwrap();
+        let r = lib.sync_folders().unwrap();
+        assert_eq!((r.added, r.recent), (0, 1));
+        // …salvo que se importe a mano («deshacer»).
+        assert_eq!(lib.import_path(&d.join("b.png")).unwrap().added, 1);
+
+        // Borrado de la carpeta → desaparece de la biblioteca.
+        fs::remove_file(d.join("sub/c.mp4")).unwrap();
+        let r = lib.sync_folders().unwrap();
+        assert_eq!((r.removed, r.missing), (1, 0));
+
+        assert!(lib.forget_folder(&fs::canonicalize(&d).unwrap()).unwrap());
+        touch(&d.join("z.png"));
+        assert_eq!(lib.sync_folders().unwrap().added, 0);
+    }
+
+    #[test]
+    fn old_libraries_adopt_fully_imported_folders() {
+        let full = tmp();
+        touch(&full.join("a.png"));
+        touch(&full.join("b.png"));
+        let partial = tmp();
+        touch(&partial.join("x.png"));
+        touch(&partial.join("y.png"));
+        let mut lib = Library::open_in_memory().unwrap();
+        lib.import_path(&full.join("a.png")).unwrap();
+        lib.import_path(&full.join("b.png")).unwrap();
+        lib.import_path(&partial.join("x.png")).unwrap();
+        // Simula una importación antigua en «full» (nuevo.png llega después) y una futura en
+        // «partial» (y.png ya estaba cuando se eligió solo x.png).
+        let (f, pa) = (fs::canonicalize(&full).unwrap(), fs::canonicalize(&partial).unwrap());
+        lib.conn.execute("UPDATE wallpapers SET added_at = added_at - 1000 WHERE path LIKE ?1", params![format!("{}/%", f.display())]).unwrap();
+        lib.conn.execute("UPDATE wallpapers SET added_at = added_at + 1000 WHERE path LIKE ?1", params![format!("{}/%", pa.display())]).unwrap();
+
+        touch(&full.join("nuevo.png"));
+        // La carpeta completa se adopta (y encuentra el nuevo); la parcial no (y.png no entra).
+        assert_eq!(lib.sync_folders().unwrap().added, 1);
+        assert_eq!(lib.folders().unwrap(), vec![fs::canonicalize(&full).unwrap()]);
+    }
+
+    #[test]
+    fn adoption_ignores_originals_of_optimized_copies() {
+        let d = tmp();
+        touch(&d.join("a.png"));
+        touch(&d.join("v/Clip 4k.mp4"));
+        touch(&d.join("v/Clip 4k (1080p30).mp4"));
+        let mut lib = Library::open_in_memory().unwrap();
+        lib.import_path(&d.join("a.png")).unwrap();
+        lib.import_path(&d.join("v/Clip 4k (1080p30).mp4")).unwrap();
+        lib.conn.execute("UPDATE wallpapers SET added_at = added_at + 1000", []).unwrap();
+
+        assert_eq!(lib.sync_folders().unwrap().added, 0);
+        let d = fs::canonicalize(&d).unwrap();
+        assert_eq!(lib.folders().unwrap(), vec![d.clone(), d.join("v")]);
+        assert_eq!(optimized_source_stem("/x/Clip 4k (1080p30).mp4").as_deref(), Some("Clip 4k"));
+        assert_eq!(optimized_source_stem("/x/Clip (2019).mp4"), None);
     }
 }

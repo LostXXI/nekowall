@@ -24,6 +24,9 @@ USO:
   nekowall restore                     Vuelve al fondo anterior
   nekowall favorite <id> [--off]       Marca o desmarca favorito
   nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
+  nekowall sync                        Busca fondos nuevos en las carpetas añadidas (y crea
+                                       Imágenes/nekowallpapers, la carpeta propia de NekoWall)
+  nekowall folders [--forget <ruta>]   Carpetas que se revisan (o deja de revisar una)
   nekowall status                      Backend, capacidades y fondo actual
   nekowall thumbs [--force]            Genera las miniaturas que falten (ffmpeg)
   nekowall probe <ruta>...             Resolución y fps de los vídeos (JSON)
@@ -39,7 +42,7 @@ USO:
   nekowall peek                        MATE: muestra u oculta los iconos del escritorio con un vídeo de fondo
   nekowall help
 
-`list`, `status`, `import` y `video-settings` aceptan --json (formato para la interfaz gráfica).
+`list`, `status`, `import`, `sync`, `folders` y `video-settings` aceptan --json (formato para la interfaz gráfica).
 La interfaz gráfica es el programa aparte `nekowall-gui` (carpeta app/).
 Variables: NEKOWALL_DB para elegir la ruta de la base de datos.
 ";
@@ -225,6 +228,50 @@ fn db_path() -> PathBuf {
     base.join("nekowall/library.db")
 }
 
+/// Carpeta de imágenes del usuario (XDG_PICTURES_DIR de ~/.config/user-dirs.dirs; si no, ~/Pictures).
+fn pictures_dir() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let cfg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+    if let Ok(text) = std::fs::read_to_string(cfg.join("user-dirs.dirs")) {
+        for line in text.lines() {
+            let Some(v) = line.trim().strip_prefix("XDG_PICTURES_DIR=") else { continue };
+            let v = v.trim().trim_matches('"');
+            let p = match v.strip_prefix("$HOME") {
+                Some(rest) => home.join(rest.trim_start_matches('/')),
+                None => PathBuf::from(v),
+            };
+            if p.is_absolute() && p != home {
+                return p;
+            }
+        }
+    }
+    home.join("Pictures")
+}
+
+/// Carpeta propia de NekoWall: «nekowallpapers» dentro de Imágenes. Se crea y se vigila sola; lo que
+/// se copia ahí aparece en la biblioteca. Si el usuario deja de vigilarla, no se vuelve a crear.
+fn default_folder(lib: &mut Library) -> Option<PathBuf> {
+    const KEY: &str = "default_folder";
+    let dir = match lib.state(KEY).ok().flatten() {
+        Some(p) => {
+            let p = PathBuf::from(p);
+            if !p.is_dir() && lib.folders().ok()?.contains(&p) {
+                std::fs::create_dir_all(&p).ok()?;
+            }
+            p
+        }
+        None => {
+            let p = pictures_dir().join("nekowallpapers");
+            std::fs::create_dir_all(&p).ok()?;
+            let p = std::fs::canonicalize(&p).ok()?;
+            lib.import_path(&p).ok()?;   // la registra como carpeta vigilada
+            lib.set_state(KEY, &p.to_string_lossy()).ok()?;
+            p
+        }
+    };
+    Some(dir)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
@@ -350,6 +397,38 @@ fn run(args: &[String]) -> Result<(), String> {
                 return Err(format!("id desconocido: {id}"));
             }
             println!("Quitado de la biblioteca (el archivo original no se toca)");
+        }
+        "sync" => {
+            let own = default_folder(&mut svc.library);
+            let r = svc.library.sync_folders().map_err(|e| e.to_string())?;
+            if json {
+                let dirs: Vec<_> = r.dirs.iter().map(|d| d.to_string_lossy()).collect();
+                let own = own.map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+                println!("{}", serde_json::json!({ "added": r.added, "recent": r.recent, "removed": r.removed, "missing": r.missing, "dirs": dirs, "default_dir": own }));
+            } else {
+                println!("Fondos nuevos: {} · quitados (borrados de la carpeta): {} · archivos que faltan: {}", r.added, r.removed, r.missing);
+            }
+        }
+        "folders" => {
+            if let Some(dir) = opt(rest, "--forget") {
+                let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| PathBuf::from(dir));
+                if !svc.library.forget_folder(&dir).map_err(|e| e.to_string())? {
+                    return Err(format!("esa carpeta no se estaba revisando: {}", dir.display()));
+                }
+                println!("Ya no se revisa {} (sus fondos siguen en la biblioteca)", dir.display());
+                return Ok(());
+            }
+            let folders = svc.library.folders().map_err(|e| e.to_string())?;
+            if json {
+                let arr: Vec<_> = folders.iter().map(|d| d.to_string_lossy()).collect();
+                println!("{}", serde_json::json!(arr));
+            } else if folders.is_empty() {
+                println!("No hay carpetas: añade una con «nekowall import <carpeta>».");
+            } else {
+                for d in folders {
+                    println!("{}", d.display());
+                }
+            }
         }
         "status" => {
             let missing = svc.library.refresh_missing().map_err(|e| e.to_string())?;

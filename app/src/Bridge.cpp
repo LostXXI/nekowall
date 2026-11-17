@@ -45,6 +45,15 @@ Bridge::Bridge(QObject *parent)
     // Punto focal de la ilustración por defecto (ojo brillante: 63 % ancho, 47 % alto).
     m_mascotFocusX = st.value(QStringLiteral("hud/mascotFocusX"), 0.63).toDouble();
     m_mascotFocusY = st.value(QStringLiteral("hud/mascotFocusY"), 0.47).toDouble();
+
+    // Copiar fondos a una carpeta añadida los muestra solos: se espera 1,5 s sin cambios (copias
+    // de muchos archivos) y se revisa.
+    m_watcher = new QFileSystemWatcher(this);
+    m_syncTimer = new QTimer(this);
+    m_syncTimer->setSingleShot(true);
+    m_syncTimer->setInterval(1500);
+    connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_syncTimer, qOverload<>(&QTimer::start));
+    connect(m_syncTimer, &QTimer::timeout, this, &Bridge::syncFolders);
 }
 
 QString Bridge::mascotUrl() const
@@ -219,6 +228,65 @@ void Bridge::refresh()
     loadList();
     loadStatus();
     loadVideoSettings();
+    syncFolders();   // la lista se muestra ya; si hay fondos nuevos en las carpetas, se recarga
+}
+
+void Bridge::syncFolders()
+{
+    if (m_syncRunning) {
+        m_syncAgain = true;
+        return;
+    }
+    m_syncRunning = true;
+    run({QStringLiteral("sync"), QStringLiteral("--json")},
+        [this](int code, const QByteArray &out, const QByteArray &) {
+            m_syncRunning = false;
+            if (code == 0) {
+                const QJsonObject o = QJsonDocument::fromJson(out).object();
+                const int added = o.value(QStringLiteral("added")).toInt();
+                const int missing = o.value(QStringLiteral("missing")).toInt();
+                const int removed = o.value(QStringLiteral("removed")).toInt();
+                if (added > 0 || removed > 0 || (m_lastMissing >= 0 && missing != m_lastMissing)) {
+                    m_thumbsRequested = false;   // los nuevos necesitan miniatura
+                    loadList();
+                }
+                if (added > 0)
+                    emit notice(added == 1 ? QStringLiteral("1 fondo nuevo en tus carpetas")
+                                           : QStringLiteral("%1 fondos nuevos en tus carpetas").arg(added), false);
+                m_lastMissing = missing;
+                const QString own = o.value(QStringLiteral("default_dir")).toString();
+                if (own != m_defaultFolder) {
+                    m_defaultFolder = own;
+                    emit defaultFolderChanged();
+                }
+
+                // Vigilar las carpetas y subcarpetas actuales (con un límite razonable).
+                QStringList dirs;
+                for (const QJsonValue &d : o.value(QStringLiteral("dirs")).toArray())
+                    if (dirs.size() < 2000)
+                        dirs << d.toString();
+                const QStringList old = m_watcher->directories();
+                QStringList gone, fresh;
+                for (const QString &d : old)
+                    if (!dirs.contains(d))
+                        gone << d;
+                for (const QString &d : std::as_const(dirs))
+                    if (!old.contains(d))
+                        fresh << d;
+                if (!gone.isEmpty())
+                    m_watcher->removePaths(gone);
+                if (!fresh.isEmpty())
+                    m_watcher->addPaths(fresh);
+
+                // Archivos aún copiándose: otra revisión en unos segundos.
+                if (o.value(QStringLiteral("recent")).toInt() > 0)
+                    QTimer::singleShot(3500, this, &Bridge::syncFolders);
+            }
+            if (m_syncAgain) {
+                m_syncAgain = false;
+                syncFolders();
+            }
+        });
 }
 
 void Bridge::loadVideoSettings()
@@ -436,6 +504,7 @@ void Bridge::doImport(const QStringList &local, const QVariantList &toOptimize, 
         emit notice(text, !errs.isEmpty() && added == 0);
         m_thumbsRequested = false;   // los nuevos necesitan miniatura
         loadList();
+        syncFolders();   // empieza a vigilar la carpeta recién añadida
         if (!toOptimize.isEmpty())
             optimizeVideos(toOptimize, choice);
     });
@@ -522,6 +591,14 @@ void Bridge::registerMateShortcut()
         }
     }
     emit notice(QStringLiteral("Atajos registrados: Meta+Alt+W (selector) y Meta+Alt+D (mostrar escritorio)"), false);
+}
+
+void Bridge::openDefaultFolder()
+{
+    if (m_defaultFolder.isEmpty())
+        return;
+    QDir().mkpath(m_defaultFolder);
+    QDesktopServices::openUrl(QUrl::fromLocalFile(m_defaultFolder));
 }
 
 void Bridge::revealInFolder(const QString &path)

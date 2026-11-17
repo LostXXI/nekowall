@@ -47,7 +47,9 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 ### Paso 5 · Añade tus fondos
 
 1. Abre **NekoWall** desde el menú.
-2. Pulsa **Añadir carpeta…** y elige la carpeta donde tienes tus fondos.
+2. Copia tus imágenes y vídeos en la carpeta **`nekowallpapers`**, dentro de tu carpeta de **Imágenes**
+   (`~/Pictures/nekowallpapers`). NekoWall la crea solo y lo que copies ahí **aparece automáticamente**.
+   El botón **Mis fondos** la abre. ¿Ya tienes tus fondos en otra carpeta? Usa **Añadir carpeta…**.
 3. Pulsa **Aplicar** en el que quieras. ¡Listo! 🎉
 
 ## Atajos de teclado
@@ -83,7 +85,8 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 rm ~/.local/bin/nekowall ~/.local/bin/nekowall-gui ~/.local/share/applications/nekowall.desktop
 ```
 
-(Si pusiste el icono en el escritorio, bórralo también. Tus fondos no se tocan.)
+(Si pusiste el icono en el escritorio, bórralo también. Tus fondos no se tocan: la carpeta
+`~/Pictures/nekowallpapers` se queda donde está.)
 
 ---
 
@@ -94,6 +97,8 @@ miniaturas y te deja cambiarlos con un clic o con el **selector rápido** (Meta+
 fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
 
 - **No copia tus archivos**: solo recuerda dónde están.
+- **Tiene su propia carpeta** (`~/Pictures/nekowallpapers`) y **vigila tus carpetas**: si copias o borras
+  fondos en ellas, la biblioteca se actualiza sola.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.
 - **Cerrado no gasta memoria**: no deja nada funcionando en segundo plano.
 - Detecta solo tu escritorio: en **KDE** usa las herramientas de Plasma y en **MATE** reproduce el vídeo con

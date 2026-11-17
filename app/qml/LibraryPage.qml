@@ -162,7 +162,18 @@ Item {
                     wrapMode: Text.Wrap
                     opacity: 0.7
                     visible: Bridge.loaded && page.all.length === 0
-                    text: "Añade una carpeta o arrastra imágenes y vídeos a esta ventana. Los archivos no se copian ni se modifican."
+                    text: (Bridge.defaultFolder !== ""
+                           ? "Copia tus imágenes y vídeos en la carpeta «nekowallpapers» (dentro de tu carpeta de Imágenes) y aparecerán aquí solos. "
+                           : "")
+                        + "También puedes añadir otra carpeta o arrastrar archivos a esta ventana. Los archivos no se copian ni se modifican."
+                }
+                Button {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: Bridge.loaded && page.all.length === 0 && Bridge.defaultFolder !== ""
+                    text: "Abrir la carpeta nekowallpapers"
+                    icon.name: "folder-pictures"
+                    highlighted: true
+                    onClicked: Bridge.openDefaultFolder()
                 }
             }
         }

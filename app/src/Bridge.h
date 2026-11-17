@@ -4,7 +4,9 @@
 
 #include <functional>
 
+#include <QFileSystemWatcher>
 #include <QObject>
+#include <QTimer>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -24,6 +26,8 @@ class Bridge : public QObject {
     Q_PROPERTY(QString thumbsDir READ thumbsDir NOTIFY statusChanged)
     Q_PROPERTY(int thumbVersion READ thumbVersion NOTIFY wallpapersChanged)
     Q_PROPERTY(QString shortcut READ shortcut CONSTANT)
+    // Carpeta propia (Imágenes/nekowallpapers): lo que se copia ahí aparece solo.
+    Q_PROPERTY(QString defaultFolder READ defaultFolder NOTIFY defaultFolderChanged)
     // Wayland (layer-shell) o X11 (ventana a pantalla completa, siempre encima).
     Q_PROPERTY(bool wayland READ wayland CONSTANT)
     // El compositor puede desenfocar detrás de la ventana (KWin): HUD de cristal; si no, fondo opaco.
@@ -52,6 +56,7 @@ public:
     explicit Bridge(QObject *parent = nullptr);
 
     QVariantList wallpapers() const { return m_wallpapers; }
+    QString defaultFolder() const { return m_defaultFolder; }
     QString currentId() const { return m_currentId; }
     QString backend() const { return m_backend; }
     bool videoSupported() const { return m_video; }
@@ -80,6 +85,7 @@ public:
     // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
     Q_INVOKABLE void registerMateShortcut();
     Q_INVOKABLE void revealInFolder(const QString &path);
+    Q_INVOKABLE void openDefaultFolder();
 
     int screenWidth() const { return m_screenW; }
     int screenHeight() const { return m_screenH; }
@@ -128,6 +134,7 @@ signals:
     void largeVideoPolicyChanged();
     void taskChanged();
     void mascotChanged();
+    void defaultFolderChanged();
     // Vídeos más grandes que la pantalla encontrados al importar (la UI pregunta qué hacer).
     void largeVideosFound(const QVariantList &videos, const QVariantList &paths);
     // Un vídeo de la biblioteca que conviene optimizar (desde el menú contextual).
@@ -143,12 +150,20 @@ private:
     void loadVideoSettings();
     void doImport(const QStringList &paths, const QVariantList &toOptimize, const QString &choice);
     void runNextOptimize();
+    void syncFolders();
     bool isLarge(const QVariantMap &video) const;
     static QStringList toLocalPaths(const QVariantList &paths);
     static QString findCli();
     static bool readReducedMotion();
 
     QString m_cli;
+    // Carpetas añadidas: se revisan al abrir y, mientras NekoWall está abierto, al cambiar.
+    QFileSystemWatcher *m_watcher = nullptr;
+    QTimer *m_syncTimer = nullptr;
+    bool m_syncRunning = false;
+    bool m_syncAgain = false;
+    int m_lastMissing = -1;
+    QString m_defaultFolder;
     QVariantList m_wallpapers;
     QString m_currentId;
     QString m_backend;
