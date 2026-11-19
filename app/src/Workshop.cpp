@@ -82,9 +82,33 @@ void CachedNetworkFactory::clearAll()
         QDir(cacheDir()).removeRecursively();
 }
 
+QVariant WorkshopModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() >= m_items.size() || role != Qt::UserRole + 1)
+        return {};
+    return m_items.at(index.row());
+}
+
+void WorkshopModel::clear()
+{
+    beginResetModel();
+    m_items.clear();
+    endResetModel();
+}
+
+void WorkshopModel::append(const QVariantList &items)
+{
+    if (items.isEmpty())
+        return;
+    beginInsertRows({}, int(m_items.size()), int(m_items.size() + items.size() - 1));
+    m_items << items;
+    endInsertRows();
+}
+
 Workshop::Workshop(QObject *parent)
     : QObject(parent)
     , m_net(new QNetworkAccessManager(this))
+    , m_model(new WorkshopModel(this))
 {
     m_cleanupTimer.setSingleShot(true);
     connect(&m_cleanupTimer, &QTimer::timeout, this, &Workshop::cleanupIfDue);
@@ -182,6 +206,7 @@ void Workshop::search(const QString &query, const QString &sorting, const QStrin
     m_lastPage = 0;
     m_total = 0;
     m_results.clear();
+    m_model->clear();   // búsqueda nueva: la rejilla sí vuelve arriba
     m_searched = false;
     m_prefetched.clear();
     m_prefetchPage = 0;
@@ -361,6 +386,7 @@ void Workshop::applyPage(const QByteArray &data, int page)
     setLoading(false);
     const QJsonObject root = QJsonDocument::fromJson(data).object();
     const QJsonObject meta = root.value(QStringLiteral("meta")).toObject();
+    QVariantList fresh;
     for (const QJsonValue &v : root.value(QStringLiteral("data")).toArray()) {
         const QJsonObject o = v.toObject();
         if (o.value(QStringLiteral("purity")).toString() != QStringLiteral("sfw"))
@@ -384,8 +410,10 @@ void Workshop::applyPage(const QByteArray &data, int page)
             colors << c.toString();
         w[QStringLiteral("colors")] = colors;
         if (validId(w.value(QStringLiteral("id")).toString()))
-            m_results << w;
+            fresh << w;
     }
+    m_results << fresh;
+    m_model->append(fresh);   // solo se añaden filas: la rejilla se queda donde estaba
     m_page = meta.value(QStringLiteral("current_page")).toInt(page);
     m_lastPage = meta.value(QStringLiteral("last_page")).toInt(m_page);
     m_total = meta.value(QStringLiteral("total")).toInt();

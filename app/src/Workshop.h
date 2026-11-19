@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QAbstractListModel>
 #include <QHash>
 #include <QTimer>
 #include <QUrl>
@@ -29,9 +30,27 @@ public:
     static void clearAll();   // borra las miniaturas guardadas (limpieza diaria)
 };
 
+// Resultados para la rejilla. Al llegar una página nueva solo se AÑADEN filas: la rejilla no vuelve
+// arriba. Cada fila tiene un único rol, «wp», con el mapa del fondo.
+class WorkshopModel : public QAbstractListModel
+{
+    Q_OBJECT
+public:
+    using QAbstractListModel::QAbstractListModel;
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : int(m_items.size()); }
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override { return {{Qt::UserRole + 1, "wp"}}; }
+    void clear();
+    void append(const QVariantList &items);
+
+private:
+    QVariantList m_items;
+};
+
 class Workshop : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QObject *model READ model CONSTANT)
     Q_PROPERTY(QVariantList results READ results NOTIFY resultsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY resultsChanged)
@@ -48,6 +67,7 @@ public:
     explicit Workshop(QObject *parent = nullptr);
 
     QVariantList results() const { return m_results; }
+    QObject *model() const { return m_model; }
     bool loading() const { return m_loading; }
     bool hasMore() const { return m_page < m_lastPage; }
     int total() const { return m_total; }
@@ -98,6 +118,7 @@ private:
     static QString networkError(QNetworkReply *reply);
 
     QNetworkAccessManager *m_net = nullptr;
+    WorkshopModel *m_model = nullptr;
     QVariantList m_results;
     bool m_loading = false;
     bool m_searched = false;

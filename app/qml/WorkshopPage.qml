@@ -52,6 +52,29 @@ Item {
         anchors.fill: parent
         spacing: 12
 
+        // Aviso fijo: Workshop necesita internet (la biblioteca y el selector no).
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: notice.implicitHeight + 20
+            radius: 8
+            color: "#1e88ff"
+            RowLayout {
+                id: notice
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 10
+                Label { text: "🌐"; font.pixelSize: 18; color: "white" }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    color: "white"
+                    font.weight: Font.DemiBold
+                    text: "Workshop solo funciona si estás conectado a internet. Tus fondos descargados se quedan en tu equipo y funcionan sin conexión."
+                }
+            }
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
@@ -117,7 +140,7 @@ Item {
             readonly property int columns: Math.max(1, Math.floor(width / 280))
             cellWidth: Math.floor(width / columns)
             cellHeight: cellWidth * 10 / 16 + 56
-            model: Workshop.results
+            model: Workshop.model
             cacheBuffer: cellHeight * 3
             ScrollBar.vertical: ScrollBar { }
             // Al acercarse al final se pide la página siguiente.
@@ -125,12 +148,12 @@ Item {
 
             delegate: Item {
                 id: tile
-                required property var modelData
+                required property var wp
                 required property int index
                 width: grid.cellWidth
                 height: grid.cellHeight
-                readonly property bool have: Workshop.downloaded.indexOf(modelData.id) >= 0
-                readonly property var pct: Workshop.progress[modelData.id]
+                readonly property bool have: Workshop.downloaded.indexOf(wp.id) >= 0
+                readonly property var pct: Workshop.progress[wp.id]
 
                 Rectangle {
                     anchors.fill: parent
@@ -142,7 +165,7 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: details.openFor(tile.modelData)
+                    onClicked: details.openFor(tile.wp)
                 }
 
                 ColumnLayout {
@@ -156,7 +179,7 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             radius: 8
-                            color: tile.modelData.colors.length > 0 ? tile.modelData.colors[0]
+                            color: tile.wp.colors.length > 0 ? tile.wp.colors[0]
                                  : Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.08)
                             opacity: 0.5
                             visible: thumb.status !== Image.Ready
@@ -164,7 +187,7 @@ Item {
                         Image {
                             id: thumb
                             anchors.fill: parent
-                            source: tile.modelData.thumb
+                            source: tile.wp.thumb
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             visible: false
@@ -197,7 +220,7 @@ Item {
                         spacing: 6
                         Label {
                             Layout.fillWidth: true
-                            text: tile.modelData.resolution + "  ·  " + page.shortSize(tile.modelData.size)
+                            text: tile.wp.resolution + "  ·  " + page.shortSize(tile.wp.size)
                             font.pixelSize: 13
                             elide: Text.ElideRight
                         }
@@ -210,8 +233,8 @@ Item {
                             ToolTip.visible: hovered
                             ToolTip.text: tile.have ? "Aplicar este fondo" : "Descargar a nekowallpapers"
                             Accessible.name: ToolTip.text
-                            onClicked: tile.have ? Bridge.applyFile(Workshop.fileFor(tile.modelData.id))
-                                                 : Workshop.download(tile.modelData, false)
+                            onClicked: tile.have ? Bridge.applyFile(Workshop.fileFor(tile.wp.id))
+                                                 : Workshop.download(tile.wp, false)
                         }
                     }
                 }
