@@ -6,6 +6,7 @@
 
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QSize>
 #include <QObject>
 #include <QTimer>
 #include <QString>
@@ -108,6 +109,9 @@ public:
     // Rutas locales o URLs file:// (lo que devuelven los diálogos de QML).
     Q_INVOKABLE void importPaths(const QVariantList &paths);
     Q_INVOKABLE void removeWallpaper(const QString &id);
+    // Varios a la vez. trashFiles: además manda los archivos a la papelera (los del sistema, que no se
+    // pueden, solo se quitan de la biblioteca).
+    Q_INVOKABLE void removeMany(const QStringList &ids, bool trashFiles);
     Q_INVOKABLE void regenerateThumbs();
     Q_INVOKABLE void openHud();
     Q_INVOKABLE void openShortcutSettings();
@@ -145,6 +149,17 @@ public:
                                       const QString &choice, bool remember);
     // Clic derecho → «Optimizar para mi pantalla…»: analiza y, si conviene, emite optimizeOffer.
     Q_INVOKABLE void requestOptimize(const QString &path);
+    // Imágenes más grandes que la pantalla: «Ajustar a mi pantalla» crea una copia recortada.
+    Q_INVOKABLE bool imageTooBig(const QString &path) const;
+    Q_INVOKABLE QString fitSizeText() const;   // «1920×1080»
+    Q_INVOKABLE int fitWidth() const { return fitSize().width(); }
+    Q_INVOKABLE int fitHeight() const { return fitSize().height(); }
+    // Ventana «Ajustar»: averigua el original (si es una copia ya ajustada) y emite adjustReady.
+    Q_INVOKABLE void openAdjust(const QString &path, const QString &name);
+    // scaleX/scaleY = píxeles de pantalla por píxel de imagen (distintos = estirada);
+    // x,y = esquina de la imagen en la pantalla.
+    Q_INVOKABLE void adjustImage(const QString &target, const QString &name, double scaleX, double scaleY,
+                                 double x, double y, const QString &fill, bool applyNow);
     Q_INVOKABLE void optimizeVideos(const QVariantList &videos, const QString &choice);
 
 signals:
@@ -157,6 +172,7 @@ signals:
     void statusChanged();
     void busyChanged();
     // ok=false → message contiene el error legible de la CLI.
+    void adjustReady(const QVariantMap &info);   // target, source, name, width, height
     void applied(bool ok, const QString &id, const QString &message);
     void error(const QString &message);
     void videoSettingsChanged();
@@ -222,7 +238,13 @@ private:
     int m_batteryLevel = 10;
     bool m_videoPlugin = false;
     QString m_largePolicy;
-    struct Job { QString path; QString name; int fps; };
+    struct Job {
+        QString path; QString name; int fps; bool image = false;
+        double scaleX = 0, scaleY = 0, x = 0, y = 0; QString fill;   // encuadre elegido en «Ajustar»
+        bool applyNow = false; QString monitor;
+    };
+    QSize fitSize() const;   // la pantalla más grande, en píxeles reales
+    mutable QHash<QString, QSize> m_imageSizes;   // cabeceras ya leídas
     QList<Job> m_queue;
     bool m_taskRunning = false;
     int m_taskProgress = 0;

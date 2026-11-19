@@ -282,6 +282,12 @@ impl Library {
         Ok(self.conn.execute("DELETE FROM wallpapers WHERE id = ?1", params![id])? > 0)
     }
 
+    /// Olvida un fondo SIN marcarlo como ignorado (se usa cuando el archivo se borró o se mandó a la
+    /// papelera: si el usuario lo recupera, vuelve a aparecer). `false` si no estaba.
+    pub fn forget(&self, id: &str) -> Result<bool, LibraryError> {
+        Ok(self.conn.execute("DELETE FROM wallpapers WHERE id = ?1", params![id])? > 0)
+    }
+
     /// Carpetas recordadas (las que se añadieron con «Añadir carpeta…»).
     pub fn folders(&self) -> Result<Vec<PathBuf>, LibraryError> {
         let mut st = self.conn.prepare("SELECT path FROM folders ORDER BY path")?;

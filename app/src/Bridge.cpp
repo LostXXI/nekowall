@@ -718,6 +718,57 @@ void Bridge::removeWallpaper(const QString &id)
         });
 }
 
+void Bridge::removeMany(const QStringList &ids, bool trashFiles)
+{
+    if (ids.isEmpty())
+        return;
+    QHash<QString, QString> paths;
+    for (const QVariant &v : std::as_const(m_wallpapers)) {
+        const QVariantMap w = v.toMap();
+        paths.insert(w.value(QStringLiteral("id")).toString(), w.value(QStringLiteral("path")).toString());
+    }
+    QStringList trashed, kept;   // kept = solo se quitan de la biblioteca
+    for (const QString &id : ids) {
+        const QString path = paths.value(id);
+        if (trashFiles && !path.isEmpty() && QFileInfo::exists(path) && QFile::moveToTrash(path))
+            trashed << id;
+        else
+            kept << id;
+    }
+    const int notTrashed = trashFiles ? int(kept.size()) : 0;
+    auto finish = [this, trashed, kept, notTrashed] {
+        QString msg;
+        if (!trashed.isEmpty())
+            msg = QStringLiteral("%1 fondo(s) eliminados: los archivos están en la papelera").arg(trashed.size());
+        else
+            msg = QStringLiteral("%1 fondo(s) quitados de la biblioteca (los archivos siguen en su carpeta)").arg(kept.size());
+        if (notTrashed > 0 && !trashed.isEmpty())
+            msg += QStringLiteral(" · %1 no se pudieron mover a la papelera (p. ej. fondos del sistema): solo se quitaron de la biblioteca").arg(notTrashed);
+        else if (notTrashed > 0)
+            msg = QStringLiteral("%1 fondo(s) quitados de la biblioteca; no se pudieron mover a la papelera (p. ej. fondos del sistema)").arg(notTrashed);
+        emit notice(msg, false);
+        loadList();
+    };
+    auto runKept = [this, kept, finish] {
+        if (kept.isEmpty()) { finish(); return; }
+        run(QStringList{QStringLiteral("remove")} + kept, [this, finish](int code, const QByteArray &, const QByteArray &err) {
+            if (code != 0)
+                emit notice(QStringLiteral("No se pudieron quitar algunos: ") + cleanError(err), true);
+            finish();
+        });
+    };
+    if (trashed.isEmpty()) {
+        runKept();
+        return;
+    }
+    run(QStringList{QStringLiteral("remove"), QStringLiteral("--forget")} + trashed,
+        [this, runKept](int code, const QByteArray &, const QByteArray &err) {
+            if (code != 0)
+                emit notice(QStringLiteral("No se pudieron quitar algunos: ") + cleanError(err), true);
+            runKept();
+        });
+}
+
 void Bridge::regenerateThumbs()
 {
     if (m_busy)
@@ -816,6 +867,70 @@ void Bridge::requestOptimize(const QString &path)
     });
 }
 
+QSize Bridge::fitSize() const
+{
+    QSize best(m_screenW, m_screenH);
+    for (QScreen *sc : QGuiApplication::screens()) {
+        const QSize px = sc->size() * sc->devicePixelRatio();
+        if (px.width() * px.height() > best.width() * best.height())
+            best = px;
+    }
+    return best;
+}
+
+QString Bridge::fitSizeText() const
+{
+    const QSize s = fitSize();
+    return QStringLiteral("%1×%2").arg(s.width()).arg(s.height());
+}
+
+bool Bridge::imageTooBig(const QString &path) const
+{
+    // Solo se lee la cabecera del archivo (instantáneo) y se recuerda.
+    auto it = m_imageSizes.constFind(path);
+    if (it == m_imageSizes.constEnd())
+        it = m_imageSizes.insert(path, QImageReader(path).size());
+    const QSize img = it.value();
+    const QSize scr = fitSize();
+    return img.isValid() && scr.isValid() && (img.width() > scr.width() || img.height() > scr.height());
+}
+
+void Bridge::openAdjust(const QString &path, const QString &name)
+{
+    run({QStringLiteral("fit-source"), path}, [this, path, name](int code, const QByteArray &out, const QByteArray &err) {
+        if (code != 0) {
+            emit notice(QStringLiteral("No se pudo abrir la imagen: ") + cleanError(err), true);
+            return;
+        }
+        QVariantMap info = QJsonDocument::fromJson(out).object().toVariantMap();
+        info[QStringLiteral("target")] = path;
+        info[QStringLiteral("name")] = name;
+        emit adjustReady(info);
+    });
+}
+
+void Bridge::adjustImage(const QString &target, const QString &name, double scaleX, double scaleY,
+                         double x, double y, const QString &fill, bool applyNow)
+{
+    for (const Job &j : std::as_const(m_queue))
+        if (j.path == target)
+            return;
+    Job job{target, name, 0, true};
+    job.scaleX = scaleX;
+    job.scaleY = scaleY;
+    job.x = x;
+    job.y = y;
+    job.fill = fill;
+    job.applyNow = applyNow;
+    job.monitor = resolvedScreen();   // "" = todas
+    m_queue.append(job);
+    if (!m_taskRunning) {
+        m_jobsDone = m_jobsFailed = 0;
+        runNextOptimize();
+    }
+    emit taskChanged();
+}
+
 void Bridge::optimizeVideos(const QVariantList &videos, const QString &choice)
 {
     const int fps = choice == QStringLiteral("60") ? 60 : 30;
@@ -839,18 +954,20 @@ void Bridge::runNextOptimize()
         emit taskChanged();
         if (m_jobsDone + m_jobsFailed > 0)
             emit notice(m_jobsFailed == 0
-                            ? QStringLiteral("Optimización terminada: %1 vídeo(s) listos (el original sigue en su carpeta)").arg(m_jobsDone)
+                            ? QStringLiteral("Listo: %1 fondo(s) ajustados a tu pantalla (el original sigue en su carpeta)").arg(m_jobsDone)
                             : QStringLiteral("Optimización: %1 listos, %2 con error").arg(m_jobsDone).arg(m_jobsFailed),
                         m_jobsFailed > 0);
         m_thumbsRequested = false;
+        m_imageSizes.clear();
         loadList();
+        loadStatus();   // si era el fondo puesto, ahora es la copia
         return;
     }
     const Job job = m_queue.takeFirst();
     m_taskRunning = true;
     m_taskProgress = 0;
     const int pending = m_queue.size();
-    m_taskText = QStringLiteral("Optimizando «%1»%2").arg(job.name,
+    m_taskText = (job.image ? QStringLiteral("Ajustando «%1»%2") : QStringLiteral("Optimizando «%1»%2")).arg(job.name,
                      pending ? QStringLiteral(" (quedan %1)").arg(pending) : QString());
     emit taskChanged();
 
@@ -875,6 +992,26 @@ void Bridge::runNextOptimize()
         p->deleteLater();
         runNextOptimize();
     });
+    if (job.image) {
+        const QSize fit = fitSize();
+        QStringList args{QStringLiteral("optimize"), job.path,
+                         QStringLiteral("--width"), QString::number(fit.width()),
+                         QStringLiteral("--height"), QString::number(fit.height()),
+                         QStringLiteral("--replace-in-library")};
+        if (job.scaleX > 0 && job.scaleY > 0)
+            args << QStringLiteral("--scale-x") << QString::number(job.scaleX, 'g', 10)
+                 << QStringLiteral("--scale-y") << QString::number(job.scaleY, 'g', 10)
+                 << QStringLiteral("--x") << QString::number(job.x, 'f', 2)
+                 << QStringLiteral("--y") << QString::number(job.y, 'f', 2)
+                 << QStringLiteral("--fill") << (job.fill.isEmpty() ? QStringLiteral("blur") : job.fill);
+        if (job.applyNow) {
+            args << QStringLiteral("--apply");
+            if (!job.monitor.isEmpty())
+                args << QStringLiteral("--monitor") << job.monitor;
+        }
+        p->start(m_cli, args);
+        return;
+    }
     p->start(m_cli, {QStringLiteral("optimize"), job.path,
                      QStringLiteral("--height"), QString::number(qMin(m_screenH, m_screenW)),
                      QStringLiteral("--fps"), QString::number(job.fps),

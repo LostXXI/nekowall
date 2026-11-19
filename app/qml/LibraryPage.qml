@@ -13,6 +13,20 @@ Item {
 
     signal removeRequested(var wallpaper)
 
+    // Modo «Seleccionar»: varios fondos a la vez (para eliminarlos).
+    property bool selecting: false
+    property var picked: ({})            // id → true
+    readonly property int pickedCount: Object.keys(picked).length
+    function togglePick(id) {
+        let p = Object.assign({}, picked)
+        if (p[id]) delete p[id]; else p[id] = true
+        picked = p
+    }
+    function pickAll() { let p = {}; for (const w of shown) p[w.id] = true; picked = p }
+    function pickNone() { picked = ({}) }
+    function stopSelecting() { selecting = false; picked = ({}) }
+    onSelectingChanged: if (!selecting) picked = ({})
+
     function focusSearch() { search.forceActiveFocus(); search.selectAll() }
     function focusGrid() { grid.forceActiveFocus() }
 
@@ -96,12 +110,53 @@ Item {
                 ToolTip.text: "Pantalla donde se aplica el fondo"
                 Accessible.name: "Aplicar en"
             }
+            Button {
+                text: "Seleccionar"
+                icon.name: "edit-select"
+                checkable: true
+                checked: page.selecting
+                onToggled: page.selecting = checked
+                ToolTip.visible: hovered
+                ToolTip.text: "Elegir varios fondos para eliminarlos"
+            }
             ComboBox {
                 id: sortBox
                 model: ["Nombre (A-Z)", "Más recientes", "Más grandes"]
                 currentIndex: page.sortMode
                 onActivated: (i) => page.sortMode = i
                 Accessible.name: "Ordenar por"
+            }
+        }
+
+        // Barra del modo «Seleccionar»
+        Rectangle {
+            Layout.fillWidth: true
+            visible: page.selecting
+            implicitHeight: selBar.implicitHeight + 16
+            radius: 8
+            color: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.16)
+            border.width: 1
+            border.color: palette.highlight
+            RowLayout {
+                id: selBar
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 8
+                Label {
+                    Layout.fillWidth: true
+                    text: page.pickedCount === 0 ? "Haz clic en los fondos que quieras elegir"
+                        : page.pickedCount === 1 ? "1 fondo seleccionado" : page.pickedCount + " fondos seleccionados"
+                    font.weight: Font.DemiBold
+                }
+                Button { text: "Seleccionar todo"; onClicked: page.pickAll(); ToolTip.visible: hovered; ToolTip.text: "Todos los que se ven ahora (Ctrl+A)" }
+                Button { text: "Ninguno"; enabled: page.pickedCount > 0; onClicked: page.pickNone() }
+                Button {
+                    text: "Eliminar…"
+                    icon.name: "edit-delete"
+                    enabled: page.pickedCount > 0
+                    onClicked: deleteDialog.open()
+                }
+                Button { text: "Cancelar"; onClicked: page.stopSelecting() }
             }
         }
 
@@ -140,7 +195,13 @@ Item {
                 height: grid.cellHeight
                 selected: GridView.isCurrentItem && grid.activeFocus
                 isCurrentWallpaper: modelData.id === Bridge.currentId
-                onClicked: { grid.currentIndex = index; grid.forceActiveFocus() }
+                selecting: page.selecting
+                picked: page.picked[modelData.id] === true
+                onClicked: {
+                    grid.currentIndex = index
+                    grid.forceActiveFocus()
+                    if (page.selecting) page.togglePick(modelData.id)
+                }
                 onApplyRequested: Bridge.apply(modelData.id)
                 onFavoriteToggled: Bridge.setFavorite(modelData.id, !modelData.favorite)
                 onContextMenuRequested: (x, y) => { menu.target = modelData; menu.popup() }
@@ -148,9 +209,17 @@ Item {
 
             Keys.onReturnPressed: if (page.selected && !page.selected.missing) Bridge.apply(page.selected.id)
             Keys.onEnterPressed: if (page.selected && !page.selected.missing) Bridge.apply(page.selected.id)
-            Keys.onDeletePressed: if (page.selected) page.removeRequested(page.selected)
+            Keys.onDeletePressed: {
+                if (page.selecting) { if (page.pickedCount > 0) deleteDialog.open() }
+                else if (page.selected) page.removeRequested(page.selected)
+            }
+            Keys.onSpacePressed: if (page.selecting && page.selected) page.togglePick(page.selected.id)
+            Keys.onEscapePressed: if (page.selecting) page.stopSelecting()
             Keys.onPressed: (e) => {
-                if (e.key === Qt.Key_F && e.modifiers === Qt.NoModifier && page.selected) {
+                if (e.key === Qt.Key_A && (e.modifiers & Qt.ControlModifier) && page.selecting) {
+                    page.pickAll()
+                    e.accepted = true
+                } else if (e.key === Qt.Key_F && e.modifiers === Qt.NoModifier && page.selected) {
                     Bridge.setFavorite(page.selected.id, !page.selected.favorite)
                     e.accepted = true
                 }
@@ -195,6 +264,45 @@ Item {
         }
     }
 
+    // Confirmación de «Eliminar…» (modo «Seleccionar»)
+    Dialog {
+        id: deleteDialog
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(520, page.width - 40)
+        title: page.pickedCount === 1 ? "¿Eliminar 1 fondo?" : "¿Eliminar " + page.pickedCount + " fondos?"
+        onAboutToShow: trashBox.checked = true
+        ColumnLayout {
+            width: deleteDialog.availableWidth
+            spacing: 10
+            CheckBox {
+                id: trashBox
+                text: "Mover también los archivos a la papelera"
+            }
+            Label {
+                Layout.preferredWidth: deleteDialog.availableWidth
+                wrapMode: Text.Wrap
+                opacity: 0.8
+                text: trashBox.checked
+                      ? "Los archivos irán a la papelera: si te arrepientes, los recuperas desde ahí y vuelven a aparecer en NekoWall. Los fondos del sistema (los de neko-void) no se pueden borrar: solo se quitan de la biblioteca."
+                      : "Solo se quitan de NekoWall. Los archivos se quedan en su carpeta y no vuelven a aparecer en la biblioteca."
+            }
+        }
+        footer: DialogButtonBox {
+            Button { text: "Cancelar"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            Button {
+                text: trashBox.checked ? "Eliminar" : "Quitar de la biblioteca"
+                icon.name: trashBox.checked ? "edit-delete" : "list-remove"
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+        }
+        onAccepted: {
+            Bridge.removeMany(Object.keys(page.picked), trashBox.checked)
+            page.stopSelecting()
+        }
+        onClosed: grid.forceActiveFocus()
+    }
+
     Menu {
         id: menu
         property var target: null
@@ -216,6 +324,13 @@ Item {
             height: visible ? implicitHeight : 0
             enabled: !Bridge.taskActive
             onTriggered: Bridge.requestOptimize(menu.target.path)
+        }
+        MenuItem {
+            text: "Ajustar a mi pantalla…"
+            icon.name: "transform-crop"
+            visible: menu.target && menu.target.kind === "static" && !menu.target.missing
+            height: visible ? implicitHeight : 0
+            onTriggered: Bridge.openAdjust(menu.target.path, menu.target.name)
         }
         MenuItem {
             text: "Abrir carpeta contenedora"

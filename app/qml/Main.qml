@@ -51,6 +51,7 @@ ApplicationWindow {
             win.notify(ok ? "Fondo aplicado: " + win.nameOf(id) : "No se pudo aplicar: " + msg, !ok)
         }
         function onLargeVideosFound(videos, paths) { videoDialog.openFor(videos, paths) }
+        function onAdjustReady(info) { adjustDialog.openFor(info) }
         function onOptimizeOffer(videos) { videoDialog.openFor(videos, null) }
         function onRemoved(id, path) {
             const name = path.split("/").pop()
@@ -81,6 +82,8 @@ ApplicationWindow {
         title: "Añadir una carpeta de fondos"
         onAccepted: Bridge.importPaths([selectedFolder])
     }
+
+    AdjustDialog { id: adjustDialog }
 
     // Vídeos más grandes que la pantalla (al importar) o vídeo a optimizar (menú contextual).
     Dialog {

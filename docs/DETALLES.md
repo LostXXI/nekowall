@@ -37,6 +37,12 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
   vincula sola la primera vez. Si la quitas, no vuelve.
 - **Vídeos grandes**: al importar un vídeo mayor que tu pantalla (p. ej. 4K) ofrece crear una copia a tu
   resolución (30 o 60 fps) junto al original; también desde clic derecho → «Optimizar para mi pantalla…».
+- **Imágenes grandes**: las imágenes más grandes que tu pantalla muestran el botón **Ajustar** (también en
+  clic derecho → «Ajustar a mi pantalla»). Crea una copia recortada al tamaño exacto de la pantalla más grande
+  (como la muestra el escritorio: escalada hasta cubrirla y centrada), en JPG de máxima calidad, p. ej.
+  `fondo (1920x1080).jpg`, junto al original (o en `nekowallpapers` si la carpeta es del sistema). La biblioteca
+  usa la copia, conserva el favorito y, si era el fondo puesto, lo cambia por la copia. El original no se borra.
+  Ejemplo medido: 1915×2456 PNG de 10,1 MB → 1,7 MB (SSIM 0,979) en 0,7 s.
 - **Ahorro**: pausa del vídeo con ventanas maximizadas / activas / visibles y con batería baja.
 - **CLI** (`nekowall`) para usar todo desde la terminal o desde scripts.
 - Cerrado no ocupa memoria: no deja procesos en segundo plano.

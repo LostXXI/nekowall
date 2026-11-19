@@ -45,6 +45,7 @@ qt_add_qml_module(nekowall-gui
         qml/WallpaperTile.qml
         qml/FilterChip.qml
         qml/WorkshopPage.qml
+        qml/AdjustDialog.qml
 )
 
 # En desarrollo, la GUI busca la CLI en ../target/release/nekowall si no está junto al ejecutable.

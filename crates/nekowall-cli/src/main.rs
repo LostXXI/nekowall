@@ -27,16 +27,25 @@ USO:
                                        Vuelve al fondo anterior
   nekowall monitors                    Pantallas conectadas y el fondo de cada una
   nekowall favorite <id> [--off]       Marca o desmarca favorito
-  nekowall remove <id>                 Quita de la biblioteca (no borra el archivo)
+  nekowall remove <id>... [--forget]   Quita de la biblioteca (no borra el archivo); --forget:
+                                       el archivo ya se borró (no se marca como ignorado)
   nekowall sync                        Busca fondos nuevos en las carpetas añadidas (y crea
                                        Imágenes/nekowallpapers, la carpeta propia de NekoWall)
   nekowall folders [--forget <ruta>]   Carpetas que se revisan (o deja de revisar una)
   nekowall status                      Backend, capacidades y fondo actual
   nekowall thumbs [--force]            Genera las miniaturas que falten (ffmpeg)
   nekowall probe <ruta>...             Resolución y fps de los vídeos (JSON)
-  nekowall optimize <id|ruta> [--height 1080] [--fps 30] [--replace-in-library]
-                                       Crea una copia «<nombre> (1080p30).mp4» junto al original;
-                                       con --replace-in-library la biblioteca usa la copia
+  nekowall optimize <id|ruta> [--width 1920] [--height 1080] [--fps 30] [--replace-in-library]
+                                       Vídeo: copia «<nombre> (1080p30).mp4» junto al original.
+                                       Imagen: copia recortada a la pantalla «<nombre> (1920x1080).jpg».
+                                       Imagen con encuadre: --scale S (o --scale-x SX --scale-y SY para
+                                       estirarla) --x X --y Y [--fill blur|black]
+                                       [--apply [--monitor PANTALLA]]
+                                       (S = píxeles de pantalla por píxel de imagen; X,Y = esquina de la
+                                       imagen en la pantalla). Siempre parte del original.
+                                       Con --replace-in-library la biblioteca usa la copia (y si era
+                                       el fondo puesto, se cambia por la copia)
+  nekowall fit-source <ruta>           Original de una copia ajustada y su tamaño (JSON)
   nekowall video-settings [--pause-mode 0-3] [--battery on|off] [--battery-level N]
                                        Pausa del vídeo: 0 pantalla completa/maximizada,
                                        1 ventana activa, 2 cualquier ventana, 3 nunca
@@ -129,37 +138,107 @@ fn make_thumb(e: &Entry, out: &Path) -> Result<(), String> {
 
 /// Convierte un vídeo y, si se pide, hace que la biblioteca use la copia en lugar del original.
 /// Última línea de stdout: JSON con el resultado (las anteriores son «encoder …» / «progress N»).
-fn cmd_optimize(lib: &mut Library, rest: &[String]) -> Result<(), String> {
+/// Original de una copia ajustada (se recuerda al crearla), o el propio archivo.
+fn fit_source(lib: &Library, path: &Path) -> PathBuf {
+    lib.state(&format!("fit_source@{}", path.display()))
+        .ok()
+        .flatten()
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+fn cmd_optimize(svc: &mut Service, rest: &[String]) -> Result<(), String> {
     let target = rest.iter().find(|a| !a.starts_with("--") && opt_value_owner(rest, a)).ok_or("falta el id o la ruta")?;
     let height: u32 = opt(rest, "--height").unwrap_or("1080").parse().map_err(|_| "--height inválido")?;
+    let width: u32 = opt(rest, "--width").unwrap_or("1920").parse().map_err(|_| "--width inválido")?;
     let fps: u32 = opt(rest, "--fps").unwrap_or("30").parse().map_err(|_| "--fps inválido")?;
     let replace = rest.iter().any(|a| a == "--replace-in-library");
+    let num = |name: &str| -> Result<Option<f64>, String> {
+        opt(rest, name).map(|v| v.parse::<f64>().map_err(|_| format!("{name} inválido"))).transpose()
+    };
+    let (scale, x, y) = (num("--scale")?, num("--x")?, num("--y")?);
+    // Ancho y alto por separado (imagen estirada); --scale vale para los dos.
+    let (scale_x, scale_y) = (num("--scale-x")?.or(scale), num("--scale-y")?.or(scale));
+    let fill = match opt(rest, "--fill").unwrap_or("blur") {
+        "black" | "negro" => media::Fill::Black,
+        _ => media::Fill::Blur,
+    };
 
-    let src = if Path::new(target).exists() {
+    // `target`: el archivo que el usuario tiene en la biblioteca (puede ser una copia ya ajustada).
+    let target = if Path::new(target).exists() {
         std::fs::canonicalize(target).map_err(|e| e.to_string())?
     } else {
-        lib.get(target).map_err(|e| e.to_string())?.ok_or(format!("id o ruta desconocida: {target}"))?.wallpaper.path
+        svc.library.get(target).map_err(|e| e.to_string())?.ok_or(format!("id o ruta desconocida: {target}"))?.wallpaper.path
     };
-    let conv = media::convert(&src, height, fps)?;
+    let is_image = WallpaperKind::from_path(&target) == Some(WallpaperKind::Static);
+    // Las imágenes se ajustan siempre desde el original: recortar una copia perdería calidad.
+    let source = if is_image { fit_source(&svc.library, &target) } else { target.clone() };
+
+    let conv = if is_image {
+        let frame = match (scale_x, scale_y) {
+            (Some(sx), Some(sy)) => Some(media::Frame {
+                sw: width, sh: height, sx, sy, x: x.unwrap_or(0.0), y: y.unwrap_or(0.0), fill,
+            }),
+            (None, None) => None,
+            _ => return Err("faltan --scale-x o --scale-y (o usa --scale para los dos)".into()),
+        };
+        let own = default_folder(&mut svc.library);
+        let c = media::fit_image(&source, width, height, own.as_deref(), frame)?;
+        let out = std::fs::canonicalize(&c.out).unwrap_or_else(|_| c.out.clone());
+        svc.library.set_state(&format!("fit_source@{}", out.display()), &source.to_string_lossy())
+            .map_err(|e| e.to_string())?;
+        c
+    } else {
+        media::convert(&source, height, fps)?
+    };
+
+    // Pantallas que muestran ese fondo ahora mismo: al terminar se les pone la copia.
+    let showing: Vec<Option<String>> = match svc.status() {
+        Ok(s) if !s.monitors.is_empty() => s
+            .monitors
+            .iter()
+            .filter(|(_, w)| w.as_ref().is_some_and(|w| w.path == target))
+            .map(|(m, _)| Some(m.name.clone()))
+            .collect(),
+        Ok(s) if s.current.as_ref().is_some_and(|w| w.path == target) => vec![None],
+        _ => Vec::new(),
+    };
 
     let mut new_id = String::new();
+    let mut reapplied = 0;
     if replace {
-        let old = lib.get_by_path(&src).map_err(|e| e.to_string())?;
-        lib.import_path(&conv.out).map_err(|e| e.to_string())?;
-        let new = lib.get_by_path(&std::fs::canonicalize(&conv.out).map_err(|e| e.to_string())?)
+        let old = svc.library.get_by_path(&target).map_err(|e| e.to_string())?;
+        svc.library.import_path(&conv.out).map_err(|e| e.to_string())?;
+        let new = svc.library.get_by_path(&std::fs::canonicalize(&conv.out).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?
             .ok_or("la copia no quedó en la biblioteca")?;
         if let Some(old) = old {
             if old.favorite {
-                lib.set_favorite(&new.wallpaper.id, true).map_err(|e| e.to_string())?;
+                svc.library.set_favorite(&new.wallpaper.id, true).map_err(|e| e.to_string())?;
             }
-            lib.remove(&old.wallpaper.id).map_err(|e| e.to_string())?;
+            svc.library.remove(&old.wallpaper.id).map_err(|e| e.to_string())?;
         }
-        new_id = new.wallpaper.id;
+        new_id = new.wallpaper.id.clone();
+        for m in &showing {
+            if svc.apply_target_on(&new_id, m.as_deref()).is_ok() {
+                reapplied += 1;
+            }
+        }
+        // «Guardar y aplicar»: ponerla de fondo (en --monitor o en todas) si no lo era ya.
+        if rest.iter().any(|a| a == "--apply") && showing.is_empty() {
+            svc.apply_target_on(&new_id, opt(rest, "--monitor")).map_err(|e| e.to_string())?;
+            reapplied += 1;
+        }
+        // La copia anterior (hecha por NekoWall, nunca el original) ya no hace falta.
+        if is_image && target != source {
+            let _ = std::fs::remove_file(&target);
+            let _ = std::fs::remove_file(thumb_path(&nekowall_backend::id_for_path(&target)));
+        }
     }
     println!("{}", serde_json::json!({
-        "ok": true, "source": src.to_string_lossy(), "out": conv.out.to_string_lossy(),
-        "id": new_id, "encoder": conv.encoder, "reused": conv.reused,
+        "ok": true, "source": source.to_string_lossy(), "out": conv.out.to_string_lossy(),
+        "id": new_id, "encoder": conv.encoder, "reused": conv.reused, "reapplied": reapplied,
     }));
     Ok(())
 }
@@ -167,7 +246,7 @@ fn cmd_optimize(lib: &mut Library, rest: &[String]) -> Result<(), String> {
 /// `true` si `a` no es el valor de una opción (p. ej. el «1080» de «--height 1080»).
 fn opt_value_owner(rest: &[String], a: &String) -> bool {
     let i = rest.iter().position(|x| std::ptr::eq(x, a)).unwrap_or(0);
-    !(i > 0 && matches!(rest[i - 1].as_str(), "--height" | "--fps"))
+    !(i > 0 && matches!(rest[i - 1].as_str(), "--height" | "--width" | "--fps" | "--scale" | "--scale-x" | "--scale-y" | "--x" | "--y" | "--fill" | "--monitor"))
 }
 
 fn cmd_thumbs(lib: &Library, force: bool) -> Result<(), String> {
@@ -457,11 +536,28 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{} favorito", if on { "Marcado como" } else { "Quitado de" });
         }
         "remove" => {
-            let id = rest.first().ok_or("falta el id")?;
-            if !svc.library.remove(id).map_err(|e| e.to_string())? {
-                return Err(format!("id desconocido: {id}"));
+            // Varios ids a la vez. --forget: el archivo ya se borró (p. ej. a la papelera): no se marca
+            // como ignorado, así si el usuario lo recupera vuelve a aparecer.
+            let forget = rest.iter().any(|a| a == "--forget");
+            let ids: Vec<&String> = rest.iter().filter(|a| !a.starts_with("--")).collect();
+            if ids.is_empty() {
+                return Err("falta el id".into());
             }
-            println!("Quitado de la biblioteca (el archivo original no se toca)");
+            let mut unknown = Vec::new();
+            for id in &ids {
+                let ok = if forget { svc.library.forget(id) } else { svc.library.remove(id) };
+                if !ok.map_err(|e| e.to_string())? {
+                    unknown.push(id.as_str());
+                }
+            }
+            if !unknown.is_empty() {
+                return Err(format!("id desconocido: {}", unknown.join(", ")));
+            }
+            if forget {
+                println!("Quitados de la biblioteca: {}", ids.len());
+            } else {
+                println!("Quitado de la biblioteca (el archivo original no se toca): {}", ids.len());
+            }
         }
         "sync" => {
             let own = default_folder(&mut svc.library);
@@ -546,7 +642,16 @@ fn run(args: &[String]) -> Result<(), String> {
                 .collect();
             println!("{}", serde_json::Value::Array(arr));
         }
-        "optimize" => cmd_optimize(&mut svc.library, rest)?,
+        "optimize" => cmd_optimize(&mut svc, rest)?,
+        "fit-source" => {
+            let p = rest.first().ok_or("falta la ruta")?;
+            let p = std::fs::canonicalize(p).map_err(|e| format!("{p}: {e}"))?;
+            let src = fit_source(&svc.library, &p);
+            let info = media::probe(&src)?;
+            println!("{}", serde_json::json!({
+                "source": src.to_string_lossy(), "width": info.width, "height": info.height,
+            }));
+        }
         "relocate" => {
             let (Some(old), Some(new)) = (rest.first(), rest.get(1)) else {
                 return Err("uso: nekowall relocate <carpeta-vieja> <carpeta-nueva>".into());

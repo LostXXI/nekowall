@@ -11,6 +11,8 @@ Item {
     required property int index
     property bool selected: false
     property bool isCurrentWallpaper: false
+    property bool selecting: false   // modo «Seleccionar»: clic = marcar/desmarcar
+    property bool picked: false
 
     signal applyRequested()
     signal favoriteToggled()
@@ -24,10 +26,11 @@ Item {
         anchors.fill: parent
         anchors.margins: 4
         radius: 10
-        color: tile.selected ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.18)
+        color: tile.picked ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.28)
+             : tile.selected ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.18)
              : hover.hovered ? Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.06)
              : "transparent"
-        border.width: tile.selected ? 2 : 0
+        border.width: tile.selected || tile.picked ? 2 : 0
         border.color: palette.highlight
     }
 
@@ -40,7 +43,7 @@ Item {
             tile.clicked()
             if (m.button === Qt.RightButton) tile.contextMenuRequested(m.x, m.y)
         }
-        onDoubleClicked: (m) => { if (m.button === Qt.LeftButton) tile.applyRequested() }
+        onDoubleClicked: (m) => { if (m.button === Qt.LeftButton && !tile.selecting) tile.applyRequested() }
     }
 
     ColumnLayout {
@@ -100,6 +103,15 @@ Item {
                     Label { id: alabel; anchors.centerIn: parent; text: "✓ Actual"; color: "white"; font.pixelSize: 12 }
                 }
             }
+            Rectangle {                      // casilla del modo «Seleccionar»
+                visible: tile.selecting
+                anchors { right: parent.right; top: parent.top; margins: 8 }
+                width: 28; height: 28; radius: 6
+                color: tile.picked ? palette.highlight : Qt.rgba(0, 0, 0, 0.55)
+                border.width: 2
+                border.color: tile.picked ? palette.highlight : "white"
+                Label { anchors.centerIn: parent; text: "✓"; color: "white"; font.pixelSize: 17; font.bold: true; visible: tile.picked }
+            }
         }
 
         Label {
@@ -124,6 +136,19 @@ Item {
                 enabled: !tile.isCurrentWallpaper && !tile.modelData.missing && !Bridge.busy
                 focusPolicy: Qt.NoFocus      // el teclado lo maneja la rejilla
                 onClicked: tile.applyRequested()
+            }
+            ToolButton {
+                // Abre la ventana «Ajustar» (vista previa, mover, escala, relleno).
+                visible: tile.modelData.kind === "static" && !tile.modelData.missing
+                icon.name: "transform-crop"
+                text: "Ajustar"
+                display: AbstractButton.TextBesideIcon
+                enabled: !Bridge.taskActive
+                focusPolicy: Qt.NoFocus
+                ToolTip.visible: hovered
+                ToolTip.text: "Encuadrar en tu pantalla (" + Bridge.fitSizeText() + ") con vista previa: mover, escala y relleno"
+                Accessible.name: "Ajustar a mi pantalla"
+                onClicked: Bridge.openAdjust(tile.modelData.path, tile.modelData.name)
             }
             ToolButton {
                 text: tile.modelData.favorite ? "★" : "☆"
