@@ -189,6 +189,11 @@ private:
     // Carpetas añadidas: se revisan al abrir y, mientras NekoWall está abierto, al cambiar.
     QFileSystemWatcher *m_watcher = nullptr;
     QTimer *m_syncTimer = nullptr;
+    // La base de datos de la biblioteca: si otro proceso la cambia (terminal, selector rápido,
+    // descargas…), la lista se vuelve a leer.
+    QFileSystemWatcher *m_dbWatcher = nullptr;
+    QTimer *m_dbTimer = nullptr;
+    void watchDb();
     bool m_syncRunning = false;
     bool m_syncAgain = false;
     int m_lastMissing = -1;

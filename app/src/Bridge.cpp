@@ -56,6 +56,25 @@ Bridge::Bridge(QObject *parent)
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, m_syncTimer, qOverload<>(&QTimer::start));
     connect(m_syncTimer, &QTimer::timeout, this, &Bridge::syncFolders);
 
+    // Cualquier cambio en la biblioteca, venga de donde venga, se ve aquí medio segundo después.
+    // Se vigila el archivo y su carpeta (SQLite crea y borra el «-journal» en cada escritura, y así
+    // también se nota si el archivo se reemplaza).
+    m_dbPath = qEnvironmentVariable("NEKOWALL_DB");
+    if (m_dbPath.isEmpty())
+        m_dbPath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+            + QStringLiteral("/nekowall/library.db");
+    m_dbWatcher = new QFileSystemWatcher(this);
+    m_dbTimer = new QTimer(this);
+    m_dbTimer->setSingleShot(true);
+    m_dbTimer->setInterval(500);
+    connect(m_dbWatcher, &QFileSystemWatcher::fileChanged, m_dbTimer, qOverload<>(&QTimer::start));
+    connect(m_dbWatcher, &QFileSystemWatcher::directoryChanged, m_dbTimer, qOverload<>(&QTimer::start));
+    connect(m_dbTimer, &QTimer::timeout, this, [this] {
+        watchDb();
+        loadList();
+    });
+    watchDb();
+
     auto screensMoved = [this] { emit screensChanged(); emit targetChanged(); emit statusChanged(); };
     connect(qGuiApp, &QGuiApplication::screenAdded, this, screensMoved);
     connect(qGuiApp, &QGuiApplication::screenRemoved, this, screensMoved);
@@ -443,6 +462,16 @@ QStringList Bridge::toLocalPaths(const QVariantList &paths)
     return out;
 }
 
+void Bridge::watchDb()
+{
+    // Tras reemplazar el archivo (o si aún no existía) hay que volver a añadirlo.
+    const QString dir = QFileInfo(m_dbPath).absolutePath();
+    if (!m_dbWatcher->directories().contains(dir) && QFileInfo(dir).isDir())
+        m_dbWatcher->addPath(dir);
+    if (!m_dbWatcher->files().contains(m_dbPath) && QFileInfo::exists(m_dbPath))
+        m_dbWatcher->addPath(m_dbPath);
+}
+
 void Bridge::loadList()
 {
     run({QStringLiteral("list"), QStringLiteral("--json")},
@@ -451,10 +480,17 @@ void Bridge::loadList()
                 emit error(cleanError(err));
                 return;
             }
-            emit wallpapersAboutToChange();
-            m_wallpapers = QJsonDocument::fromJson(out).array().toVariantList();
-            m_loaded = true;
-            emit wallpapersChanged();
+            const QVariantList fresh = QJsonDocument::fromJson(out).array().toVariantList();
+            // Sin cambios no se redibuja nada (el selector se quedaría donde está igualmente,
+            // pero así no parpadea al aplicar un fondo, que también escribe en la biblioteca).
+            if (!m_loaded || fresh != m_wallpapers) {
+                emit wallpapersAboutToChange();
+                m_wallpapers = fresh;
+                m_loaded = true;
+                m_thumbsRequested = false;   // lo nuevo puede necesitar miniatura (si falla, la lista
+                                             // ya no cambia y no se reintenta en bucle)
+                emit wallpapersChanged();
+            }
 
             // Si falta alguna miniatura, se generan en segundo plano y se recarga.
             bool missingThumb = false;
@@ -507,6 +543,7 @@ void Bridge::loadStatus()
                 emit targetChanged();
             }
             m_dbPath = o.value(QStringLiteral("db")).toString();
+            watchDb();
             m_thumbsDir = o.value(QStringLiteral("thumbs_dir")).toString();
             emit statusChanged();
         });
