@@ -21,6 +21,20 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
 - **Carpeta propia**: `nekowallpapers` dentro de la carpeta de Imágenes (`XDG_PICTURES_DIR`, normalmente
   `~/Pictures`). Se crea la primera vez y se vigila siempre; el botón **Mis fondos** la abre. Si la dejas de
   vigilar (`nekowall folders --forget …`), no se vuelve a crear.
+- **Workshop**: busca en [Wallhaven](https://wallhaven.cc) (API pública, sin cuenta ni clave) por texto o
+  etiqueta, con orden (populares, recientes, top del mes, aleatorio), categorías (anime, general, personas) y
+  «Para mi pantalla» (tu resolución o más). El panel de cada fondo muestra la imagen grande, sus etiquetas
+  (clic = buscar esa etiqueta), autor y enlace a Wallhaven. Las descargas se guardan como
+  `nekowallpapers/wallhaven-<id>.jpg|png` (mientras bajan, como archivo oculto `.part`) y aparecen solas en la
+  biblioteca; «Descargar y aplicar» lo pone de fondo al terminar. **Siempre solo contenido apto (SFW)**, sin
+  opción para cambiarlo. No se conecta a internet hasta que abres la página. Para que vaya rápido: las búsquedas se
+  guardan en `~/.cache/nekowall/busquedas` (repetir una búsqueda es instantáneo; «Recientes» caduca a los 15 min
+  y «Aleatorio» no se guarda), la página siguiente se pide por adelantado, las miniaturas se guardan en
+  `~/.cache/nekowall/workshop` (máx. 200 MB) y si Wallhaven falla (502/503) se reintenta cada medio segundo.
+  **Cada día a las 23:59** se borran las búsquedas y las miniaturas guardadas (si NekoWall estaba cerrado, al
+  abrirlo). Las descargas no se tocan.
+- **Fondos oficiales de neko-void**: en neko-void, `/usr/share/backgrounds` (paquete `neko-backgrounds`) se
+  vincula sola la primera vez. Si la quitas, no vuelve.
 - **Vídeos grandes**: al importar un vídeo mayor que tu pantalla (p. ej. 4K) ofrece crear una copia a tu
   resolución (30 o 60 fps) junto al original; también desde clic derecho → «Optimizar para mi pantalla…».
 - **Ahorro**: pausa del vídeo con ventanas maximizadas / activas / visibles y con batería baja.

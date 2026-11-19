@@ -579,6 +579,27 @@ void Bridge::apply(const QString &id)
         });
 }
 
+void Bridge::applyFile(const QString &path)
+{
+    if (m_busy || path.isEmpty())
+        return;
+    setBusy(true);
+    const QString monitor = resolvedScreen();
+    QStringList args{QStringLiteral("apply"), path};
+    if (!monitor.isEmpty())
+        args << QStringLiteral("--monitor") << monitor;
+    run(args, [this, path](int code, const QByteArray &, const QByteArray &err) {
+        setBusy(false);
+        const QString name = QFileInfo(path).fileName();
+        if (code == 0) {
+            emit notice(QStringLiteral("Fondo aplicado: ") + name, false);
+            loadStatus();   // el id real lo calcula la CLI
+        } else {
+            emit notice(QStringLiteral("No se pudo aplicar ") + name + QStringLiteral(": ") + cleanError(err), true);
+        }
+    });
+}
+
 void Bridge::setFavorite(const QString &id, bool on)
 {
     QStringList args{QStringLiteral("favorite"), id};

@@ -93,6 +93,8 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void apply(const QString &id);
+    // Aplica un archivo por su ruta (lo añade a la biblioteca si no estaba): «Descargar y aplicar».
+    Q_INVOKABLE void applyFile(const QString &path);
     Q_INVOKABLE void setFavorite(const QString &id, bool on);
     Q_INVOKABLE QString formatSize(qint64 bytes) const;
 

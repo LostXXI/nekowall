@@ -19,12 +19,16 @@ if(NOT Qt6Qml_FOUND OR NOT Qt6Quick_FOUND OR NOT Qt6QuickControls2_FOUND)
         "Instálalo con:   sudo xbps-install -S qt6-declarative-devel\n"
         "(en neko-void puede ser «doas» en lugar de «sudo»)\n")
 endif()
+# Red (Workshop: búsquedas y descargas de Wallhaven). Viene con qt6-base-devel.
+find_package(Qt6 6.5 REQUIRED COMPONENTS Network)
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(nekowall-gui
     src/main.cpp
     src/Bridge.cpp
     src/Bridge.h
+    src/Workshop.cpp
+    src/Workshop.h
 )
 
 qt_add_qml_module(nekowall-gui
@@ -40,6 +44,7 @@ qt_add_qml_module(nekowall-gui
         qml/SettingsPage.qml
         qml/WallpaperTile.qml
         qml/FilterChip.qml
+        qml/WorkshopPage.qml
 )
 
 # En desarrollo, la GUI busca la CLI en ../target/release/nekowall si no está junto al ejecutable.
@@ -53,6 +58,6 @@ if(KF6WindowSystem_FOUND)
     target_compile_definitions(nekowall-gui PRIVATE HAVE_KWINDOWEFFECTS)
 endif()
 
-target_link_libraries(nekowall-gui PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(nekowall-gui PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Network)
 
 install(TARGETS nekowall-gui RUNTIME DESTINATION bin)

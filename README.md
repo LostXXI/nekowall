@@ -50,6 +50,7 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 2. Copia tus imágenes y vídeos en la carpeta **`nekowallpapers`**, dentro de tu carpeta de **Imágenes**
    (`~/Pictures/nekowallpapers`). NekoWall la crea solo y lo que copies ahí **aparece automáticamente**.
    El botón **Mis fondos** la abre. ¿Ya tienes tus fondos en otra carpeta? Usa **Añadir carpeta…**.
+   ¿No tienes fondos? Entra en **Workshop** (menú de la izquierda) y descárgalos con un clic.
 3. Pulsa **Aplicar** en el que quieras. ¡Listo! 🎉
 
 ## Atajos de teclado
@@ -100,6 +101,8 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
 - **No copia tus archivos**: solo recuerda dónde están.
 - **Tiene su propia carpeta** (`~/Pictures/nekowallpapers`) y **vigila tus carpetas**: si copias o borras
   fondos en ellas, la biblioteca se actualiza sola.
+- **Workshop**: busca y descarga fondos de [Wallhaven](https://wallhaven.cc) sin salir de NekoWall (solo
+  contenido apto). Se guardan en `nekowallpapers` y aparecen solos en la biblioteca.
 - **Varias pantallas**: cada una puede tener su propio fondo (imagen o vídeo). El fondo se aplica en la
   pantalla donde está el ratón, o eliges otra (o todas) con el botón del selector o de la biblioteca.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.

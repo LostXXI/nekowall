@@ -4,6 +4,7 @@
 // NEKOWALL_TIMING=1 imprime en stderr cuánto tarda en aparecer el primer fotograma.
 
 #include "Bridge.h"
+#include "Workshop.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -51,8 +52,12 @@ int main(int argc, char *argv[])
     }
 
     Bridge bridge;
+    Workshop workshop;   // no se conecta a nada hasta que se abre la página Workshop
+    CachedNetworkFactory netFactory;
     QQmlApplicationEngine engine;
+    engine.setNetworkAccessManagerFactory(&netFactory);
     engine.rootContext()->setContextProperty(QStringLiteral("Bridge"), &bridge);
+    engine.rootContext()->setContextProperty(QStringLiteral("Workshop"), &workshop);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);

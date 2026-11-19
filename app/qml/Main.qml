@@ -16,8 +16,12 @@ ApplicationWindow {
     onScreenChanged: Bridge.hostScreen = screen ? screen.name : ""
     Component.onCompleted: Bridge.hostScreen = screen ? screen.name : ""
 
-    property int pageIndex: Qt.application.arguments.indexOf("--page=1") >= 0 ? 1
-                          : Qt.application.arguments.indexOf("--page=2") >= 0 ? 2 : 0
+    // --page=N abre la ventana en esa página (0 Biblioteca · 1 Workshop · 2 Ajustes · 3 Acerca de).
+    property int pageIndex: {
+        for (const a of Qt.application.arguments)
+            if (a.startsWith("--page=")) return Math.max(0, Math.min(3, parseInt(a.slice(7)) || 0))
+        return 0
+    }
     property string statusText: ""
     property bool statusIsError: false
     property var undoRemoved: null      // { path, name } del último fondo quitado
@@ -278,6 +282,7 @@ ApplicationWindow {
                 Repeater {
                     model: [
                         { text: "Biblioteca", icon: "folder-pictures" },
+                        { text: "Workshop", icon: "download" },
                         { text: "Ajustes", icon: "configure" },
                         { text: "Acerca de", icon: "help-about" }
                     ]
@@ -303,6 +308,9 @@ ApplicationWindow {
                 id: library
                 onRemoveRequested: (w) => { removeDialog.target = w; removeDialog.open() }
                 Component.onCompleted: focusGrid()
+            }
+            WorkshopPage {
+                onNotify: (text, isError) => win.notify(text, isError)
             }
             SettingsPage { }
             ColumnLayout {                           // Acerca de
