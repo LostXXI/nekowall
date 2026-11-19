@@ -287,6 +287,29 @@ fn default_folder(lib: &mut Library) -> Option<PathBuf> {
     Some(dir)
 }
 
+/// Fondos oficiales de neko-void (paquete «neko-backgrounds» en /usr/share/backgrounds). Se vinculan
+/// como carpeta vigilada una sola vez y solo en neko-void (se reconoce por el archivo de MATE que trae
+/// el paquete): en otro sistema esa carpeta puede tener cualquier cosa. Si el usuario la quita, no
+/// vuelve. Los archivos son del sistema: NekoWall solo los lee.
+fn official_folder(lib: &mut Library) {
+    link_official(
+        lib,
+        Path::new("/usr/share/mate-background-properties/neko.xml"),
+        Path::new("/usr/share/backgrounds"),
+    );
+}
+
+fn link_official(lib: &mut Library, marker: &Path, dir: &Path) {
+    const KEY: &str = "official_folder";
+    if lib.state(KEY).ok().flatten().is_some() || !marker.is_file() || !dir.is_dir() {
+        return;
+    }
+    let Ok(dir) = std::fs::canonicalize(dir) else { return };
+    if lib.import_path(&dir).is_ok() {
+        let _ = lib.set_state(KEY, &dir.to_string_lossy());
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
@@ -442,6 +465,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "sync" => {
             let own = default_folder(&mut svc.library);
+            official_folder(&mut svc.library);
             let r = svc.library.sync_folders().map_err(|e| e.to_string())?;
             if json {
                 let dirs: Vec<_> = r.dirs.iter().map(|d| d.to_string_lossy()).collect();
@@ -607,3 +631,36 @@ fn run(args: &[String]) -> Result<(), String> {
 // Evita warning si el trait no se usa directamente.
 #[allow(dead_code)]
 fn _assert_backend<T: WallpaperBackend>() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_folder_only_on_neko_void_and_only_once() {
+        let base = std::env::temp_dir().join(format!("nekowall-cli-oficial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("backgrounds");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("neko.png"), b"x").unwrap();
+        let marker = base.join("neko.xml");
+        let mut lib = Library::open_in_memory().unwrap();
+
+        // Sin la marca de neko-void no se vincula nada.
+        link_official(&mut lib, &marker, &dir);
+        assert!(lib.folders().unwrap().is_empty());
+
+        // En neko-void sí, con sus fondos.
+        std::fs::write(&marker, b"<wallpapers/>").unwrap();
+        link_official(&mut lib, &marker, &dir);
+        let canon = std::fs::canonicalize(&dir).unwrap();
+        assert_eq!(lib.folders().unwrap(), vec![canon.clone()]);
+        assert_eq!(lib.list(&Filter::default()).unwrap().len(), 1);
+
+        // Si el usuario la quita, no vuelve.
+        lib.forget_folder(&canon).unwrap();
+        link_official(&mut lib, &marker, &dir);
+        assert!(lib.folders().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
