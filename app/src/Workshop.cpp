@@ -121,29 +121,41 @@ void Workshop::setFolder(const QString &f)
         return;
     m_folder = f;
     emit folderChanged();
-    scanFolder();
 }
 
-void Workshop::scanFolder()
+QString Workshop::idOfPath(const QString &path)
 {
-    QStringList ids;
-    if (!m_folder.isEmpty()) {
-        const QStringList files = QDir(m_folder).entryList({QStringLiteral("wallhaven-*")}, QDir::Files);
-        for (const QString &f : files)
-            ids << QFileInfo(f).completeBaseName().mid(10);   // quita «wallhaven-»
+    const QString name = QFileInfo(path).fileName();
+    if (!name.startsWith(QStringLiteral("wallhaven-")))
+        return {};
+    QString id;
+    for (QChar c : name.mid(10)) {
+        if (!c.isLetterOrNumber())
+            break;
+        id += c;
     }
-    if (ids != m_downloaded) {
-        m_downloaded = ids;
-        emit downloadedChanged();
+    return validId(id) ? id : QString();
+}
+
+void Workshop::setLibraryPaths(const QStringList &paths)
+{
+    if (paths == m_libraryPaths)
+        return;
+    m_libraryPaths = paths;
+    m_pathById.clear();
+    for (const QString &p : paths) {
+        const QString id = idOfPath(p);
+        // Si hay varios (original y copia ajustada), vale cualquiera; se prefiere el primero visto.
+        if (!id.isEmpty() && !m_pathById.contains(id))
+            m_pathById.insert(id, p);
     }
+    m_downloaded = m_pathById.keys();
+    emit downloadedChanged();
 }
 
 QString Workshop::fileFor(const QString &id) const
 {
-    if (m_folder.isEmpty() || !validId(id))
-        return {};
-    const QStringList files = QDir(m_folder).entryList({QStringLiteral("wallhaven-") + id + QStringLiteral(".*")}, QDir::Files);
-    return files.isEmpty() ? QString() : QDir(m_folder).filePath(files.first());
+    return m_pathById.value(id);
 }
 
 void Workshop::setLoading(bool on)
@@ -508,7 +520,8 @@ void Workshop::download(const QVariantMap &w, bool applyAfter)
         return;
     }
     const QString existing = fileFor(id);
-    if (!existing.isEmpty()) {   // ya estaba: no se descarga dos veces
+    if (!existing.isEmpty()) {   // ya está en la biblioteca: no se descarga dos veces
+        // (si el usuario lo eliminó pero quedó el archivo, sí se descarga de nuevo y se reemplaza)
         emit downloadFinished(id, existing, applyAfter);
         return;
     }
@@ -558,7 +571,6 @@ void Workshop::download(const QVariantMap &w, bool applyAfter)
             emit downloadFailed(id, QStringLiteral("no se pudo guardar en ") + m_folder);
             return;
         }
-        scanFolder();
         emit downloadFinished(id, finalPath, applyAfter);
     });
 }

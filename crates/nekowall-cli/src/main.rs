@@ -6,6 +6,7 @@ use nekowall_plasma::PlasmaBackend;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod link;
 mod media;
 
 /// Valor de una opción «--nombre valor».
@@ -45,6 +46,10 @@ USO:
                                        imagen en la pantalla). Siempre parte del original.
                                        Con --replace-in-library la biblioteca usa la copia (y si era
                                        el fondo puesto, se cambia por la copia)
+  nekowall link-info <enlace>          Título, vista previa y formatos de un enlace (JSON; usa yt-dlp)
+  nekowall link-preview <enlace>       Vista previa corta en H.264 (para vídeos AV1/H.265)
+  nekowall link-download <enlace> --format ID [--convert ALTURA [--reencode]] [--title T] [--out CARPETA]
+                                       Descarga ese formato (sin audio) a nekowallpapers
   nekowall fit-source <ruta>           Original de una copia ajustada y su tamaño (JSON)
   nekowall video-settings [--pause-mode 0-3] [--battery on|off] [--battery-level N]
                                        Pausa del vídeo: 0 pantalla completa/maximizada,
@@ -241,6 +246,12 @@ fn cmd_optimize(svc: &mut Service, rest: &[String]) -> Result<(), String> {
         "id": new_id, "encoder": conv.encoder, "reused": conv.reused, "reapplied": reapplied,
     }));
     Ok(())
+}
+
+/// `true` si `a` no es el valor de una opción de link-download.
+fn link_value_owner(rest: &[String], a: &String) -> bool {
+    let i = rest.iter().position(|x| std::ptr::eq(x, a)).unwrap_or(0);
+    !(i > 0 && matches!(rest[i - 1].as_str(), "--format" | "--convert" | "--title" | "--out"))
 }
 
 /// `true` si `a` no es el valor de una opción (p. ej. el «1080» de «--height 1080»).
@@ -544,7 +555,18 @@ fn run(args: &[String]) -> Result<(), String> {
                 return Err("falta el id".into());
             }
             let mut unknown = Vec::new();
+            // Con --forget (archivo ya en la papelera): si era una copia ajustada por NekoWall, su
+            // original oculto también sobra; se devuelve para que la interfaz lo mande a la papelera.
+            let mut originals: Vec<String> = Vec::new();
             for id in &ids {
+                if forget {
+                    if let Ok(Some(e)) = svc.library.get(id) {
+                        let src = fit_source(&svc.library, &e.wallpaper.path);
+                        if src != e.wallpaper.path && svc.library.is_ignored(&src).unwrap_or(false) {
+                            originals.push(src.to_string_lossy().into_owned());
+                        }
+                    }
+                }
                 let ok = if forget { svc.library.forget(id) } else { svc.library.remove(id) };
                 if !ok.map_err(|e| e.to_string())? {
                     unknown.push(id.as_str());
@@ -553,7 +575,9 @@ fn run(args: &[String]) -> Result<(), String> {
             if !unknown.is_empty() {
                 return Err(format!("id desconocido: {}", unknown.join(", ")));
             }
-            if forget {
+            if json {
+                println!("{}", serde_json::json!({ "removed": ids.len(), "originals": originals }));
+            } else if forget {
                 println!("Quitados de la biblioteca: {}", ids.len());
             } else {
                 println!("Quitado de la biblioteca (el archivo original no se toca): {}", ids.len());
@@ -643,6 +667,30 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{}", serde_json::Value::Array(arr));
         }
         "optimize" => cmd_optimize(&mut svc, rest)?,
+        "link-info" => {
+            let url = rest.iter().find(|a| !a.starts_with("--")).ok_or("falta el enlace")?;
+            println!("{}", link::info(url)?);
+        }
+        "link-preview" => {
+            let url = rest.iter().find(|a| !a.starts_with("--")).ok_or("falta el enlace")?;
+            let out = thumbs_dir().parent().map(|p| p.join("vista-previa.mp4")).unwrap_or_else(|| std::env::temp_dir().join("nekowall-vista-previa.mp4"));
+            let path = link::make_preview(url, &out)?;
+            println!("{}", serde_json::json!({ "path": path.to_string_lossy() }));
+        }
+        "link-download" => {
+            let url = rest.iter().find(|a| !a.starts_with("--") && link_value_owner(rest, a)).ok_or("falta el enlace")?;
+            let format = opt(rest, "--format").unwrap_or("directo");
+            let convert: u32 = opt(rest, "--convert").unwrap_or("0").parse().map_err(|_| "--convert inválido")?;
+            let title = opt(rest, "--title").unwrap_or("fondo");
+            let out = match opt(rest, "--out") {
+                Some(d) => PathBuf::from(d),
+                None => default_folder(&mut svc.library).ok_or("no encuentro la carpeta nekowallpapers")?,
+            };
+            let tmp = thumbs_dir().parent().map(|p| p.join("descargas")).unwrap_or_else(|| std::env::temp_dir().join("nekowall-descargas"));
+            let reencode = rest.iter().any(|a| a == "--reencode");
+            let path = link::download(url, format, convert, reencode, title, &out, &tmp)?;
+            println!("{}", serde_json::json!({ "path": path.to_string_lossy() }));
+        }
         "fit-source" => {
             let p = rest.first().ok_or("falta la ruta")?;
             let p = std::fs::canonicalize(p).map_err(|e| format!("{p}: {e}"))?;

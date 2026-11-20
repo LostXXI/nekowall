@@ -188,6 +188,7 @@ Item {
             model: page.shown
             cacheBuffer: cellHeight * 2
             ScrollBar.vertical: ScrollBar { }
+            FastWheel { flick: grid }
             onCurrentIndexChanged: if (!page.restoring && page.selected) page.selectedId = page.selected.id
 
             delegate: WallpaperTile {

@@ -156,6 +156,13 @@ public:
     Q_INVOKABLE int fitHeight() const { return fitSize().height(); }
     // Ventana «Ajustar»: averigua el original (si es una copia ya ajustada) y emite adjustReady.
     Q_INVOKABLE void openAdjust(const QString &path, const QString &name);
+    // «Pegar enlace» (Workshop): analizar un enlace y descargar el formato elegido.
+    Q_INVOKABLE void linkInfo(const QString &url);
+    Q_INVOKABLE void linkDownload(const QString &url, const QString &formatId, int convertTo, bool reencode,
+                                  const QString &title, bool applyAfter);
+    // Vista previa corta en H.264 hecha con ffmpeg (para vídeos que Qt no puede abrir, p. ej. AV1).
+    Q_INVOKABLE void linkPreview(const QString &url);
+    Q_INVOKABLE QString clipboardUrl() const;   // el enlace copiado, si lo hay
     // scaleX/scaleY = píxeles de pantalla por píxel de imagen (distintos = estirada);
     // x,y = esquina de la imagen en la pantalla.
     Q_INVOKABLE void adjustImage(const QString &target, const QString &name, double scaleX, double scaleY,
@@ -172,6 +179,11 @@ signals:
     void statusChanged();
     void busyChanged();
     // ok=false → message contiene el error legible de la CLI.
+    void linkInfoReady(const QString &url, const QVariantMap &info);
+    void linkInfoFailed(const QString &url, const QString &message);
+    void linkDownloaded(const QString &path);
+    void linkPreviewReady(const QString &url, const QString &path);
+    void linkPreviewFailed(const QString &url, const QString &message);
     void adjustReady(const QVariantMap &info);   // target, source, name, width, height
     void applied(bool ok, const QString &id, const QString &message);
     void error(const QString &message);

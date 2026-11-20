@@ -32,18 +32,25 @@ Item {
         doSearch()
     }
     function shortSize(bytes) { return Bridge.formatSize(bytes) }
+    function openLink(url) { linkDialog.openWith(url) }
 
     // La primera búsqueda se hace al abrir la página, no al abrir NekoWall.
     onVisibleChanged: if (visible && !started) doSearch()
     Component.onCompleted: if (visible && !started) doSearch()
 
     Binding { target: Workshop; property: "folder"; value: Bridge.defaultFolder }
+    Binding { target: Workshop; property: "libraryPaths"; value: Bridge.wallpapers.map(w => w.path) }
 
     Connections {
         target: Workshop
         function onDownloadFinished(id, path, applyAfter) {
-            if (applyAfter) Bridge.applyFile(path)
-            else page.notify("Descargado en nekowallpapers: " + path.split("/").pop(), false)
+            if (applyAfter) {
+                Bridge.applyFile(path)
+            } else {
+                // Se añade a la biblioteca enseguida (también si se había eliminado antes).
+                Bridge.importPaths([path])
+                page.notify("Descargado en nekowallpapers: " + path.split("/").pop(), false)
+            }
         }
         function onDownloadFailed(id, message) { page.notify("No se pudo descargar: " + message, true) }
     }
@@ -91,6 +98,13 @@ Item {
                 icon.name: "search"
                 highlighted: true
                 onClicked: page.doSearch()
+            }
+            Button {
+                text: "Pegar enlace…"
+                icon.name: "insert-link"
+                onClicked: linkDialog.openWith("")
+                ToolTip.visible: hovered
+                ToolTip.text: "Descargar un fondo animado desde un enlace (YouTube, Reddit, un vídeo directo…) eligiendo el formato"
             }
         }
 
@@ -143,8 +157,21 @@ Item {
             model: Workshop.model
             cacheBuffer: cellHeight * 3
             ScrollBar.vertical: ScrollBar { }
-            // Al acercarse al final se pide la página siguiente.
-            onContentYChanged: if (contentHeight > 0 && contentY + height > contentHeight - cellHeight * 2) Workshop.loadMore()
+            // Siempre hay 3 páginas cargadas por delante de lo que se ve (72 fondos de margen): al bajar
+            // casi nunca se llega al final vacío, y si el usuario se queda mirando, se deja de pedir.
+            readonly property real pageHeight: Math.ceil(24 / columns) * cellHeight
+            function keepAhead() {
+                if (count > 0 && contentHeight - (contentY + height) < pageHeight * 3)
+                    Workshop.loadMore()   // no hace nada si ya está cargando o no hay más
+            }
+            onContentYChanged: keepAhead()
+            onCountChanged: Qt.callLater(keepAhead)
+            onHeightChanged: Qt.callLater(keepAhead)
+            Connections {
+                target: Workshop
+                function onLoadingChanged() { if (!Workshop.loading) Qt.callLater(grid.keepAhead) }
+            }
+            FastWheel { flick: grid }
 
             delegate: Item {
                 id: tile
@@ -413,4 +440,6 @@ Item {
             }
         }
     }
+
+    LinkDialog { id: linkDialog }
 }

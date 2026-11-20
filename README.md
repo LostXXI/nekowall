@@ -103,6 +103,7 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
   fondos en ellas, la biblioteca se actualiza sola.
 - **Workshop**: busca y descarga fondos de [Wallhaven](https://wallhaven.cc) sin salir de NekoWall (solo
   contenido apto). Se guardan en `nekowallpapers` y aparecen solos en la biblioteca.
+  Con **Pegar enlace** bajas fondos animados de YouTube, Reddit y otros sitios, eligiendo la calidad.
 - **Varias pantallas**: cada una puede tener su propio fondo (imagen o vídeo). El fondo se aplica en la
   pantalla donde está el ratón, o eliges otra (o todas) con el botón del selector o de la biblioteca.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.

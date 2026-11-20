@@ -46,6 +46,9 @@ qt_add_qml_module(nekowall-gui
         qml/FilterChip.qml
         qml/WorkshopPage.qml
         qml/AdjustDialog.qml
+        qml/FastWheel.qml
+        qml/LinkDialog.qml
+        qml/LinkPreview.qml
 )
 
 # En desarrollo, la GUI busca la CLI en ../target/release/nekowall si no está junto al ejecutable.

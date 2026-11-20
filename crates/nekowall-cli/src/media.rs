@@ -116,12 +116,18 @@ pub struct Converted {
 
 /// Convierte con libx264 (ver la medición dentro). Escribe «progress N» (0-100) en stdout para que la interfaz muestre una barra.
 pub fn convert(src: &Path, max_h: u32, max_fps: u32) -> Result<Converted, String> {
+    convert_opts(src, max_h, max_fps, false)
+}
+
+/// `force`: convertir aunque no cambie el tamaño ni los fps (para pasar AV1/H.265 a H.264, que se
+/// reproduce bien en casi cualquier equipo).
+pub fn convert_opts(src: &Path, max_h: u32, max_fps: u32, force: bool) -> Result<Converted, String> {
     let info = probe(src)?;
     let (w, h) = target_size(&info, max_h);
     let fps = target_fps(&info, max_fps);
     let out = output_path(src, h, fps);
     let change_fps = (info.fps - fps as f64).abs() > 0.5;
-    if !change_fps && h >= (info.height & !1) {
+    if !force && !change_fps && h >= (info.height & !1) {
         return Err(format!(
             "no hace falta: el vídeo ya es {}×{} a {} fps",
             info.width, info.height, info.fps.round()
@@ -279,8 +285,7 @@ pub fn fit_image(src: &Path, sw: u32, sh: u32, fallback_dir: Option<&Path>, fram
         ".{}.part.jpg",
         out.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
     ));
-    println!("progress 10");
-    let _ = std::io::stdout().flush();
+    report(10);
     let res = Command::new("nice")
         .args(["-n", "10", "ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-y", "-i"])
         .arg(src)
@@ -297,8 +302,25 @@ pub fn fit_image(src: &Path, sw: u32, sh: u32, fallback_dir: Option<&Path>, fram
         return Err(err.lines().last().unwrap_or("ffmpeg falló").to_string());
     }
     std::fs::rename(&tmp, &out).map_err(|e| format!("{}: {e}", out.display()))?;
-    println!("progress 100");
+    report(100);
     Ok(Converted { out, encoder: "ffmpeg (jpg)", reused: false })
+}
+
+// Rango de la barra que corresponde a la conversión (p. ej. 60-100 % cuando antes hubo una descarga).
+static PROGRESS_BASE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static PROGRESS_SPAN: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(100);
+
+/// La conversión informará su avance dentro de [base, base+span] de la barra.
+pub fn set_progress_range(base: i64, span: i64) {
+    PROGRESS_BASE.store(base, std::sync::atomic::Ordering::Relaxed);
+    PROGRESS_SPAN.store(span, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn report(pct: i64) {
+    let base = PROGRESS_BASE.load(std::sync::atomic::Ordering::Relaxed);
+    let span = PROGRESS_SPAN.load(std::sync::atomic::Ordering::Relaxed);
+    println!("progress {}", base + pct.clamp(0, 100) * span / 100);
+    let _ = std::io::stdout().flush();
 }
 
 fn run_ffmpeg(input_args: &[String], tmp: &Path, duration: f64) -> Result<(), String> {
@@ -328,8 +350,7 @@ fn run_ffmpeg(input_args: &[String], tmp: &Path, duration: f64) -> Result<(), St
                 let pct = ((us / 1e6 / duration) * 100.0).clamp(0.0, 99.0) as i64;
                 if pct != last {
                     last = pct;
-                    println!("progress {pct}");
-                    let _ = std::io::stdout().flush();
+                    report(pct);
                 }
             }
         }
@@ -338,7 +359,7 @@ fn run_ffmpeg(input_args: &[String], tmp: &Path, duration: f64) -> Result<(), St
     let err = err_thread.join().unwrap_or_default();
     let ok = status.success() && std::fs::metadata(tmp).map(|m| m.len() > 0).unwrap_or(false);
     if ok {
-        println!("progress 100");
+        report(100);
         Ok(())
     } else {
         Err(err.lines().last().unwrap_or("ffmpeg falló").to_string())

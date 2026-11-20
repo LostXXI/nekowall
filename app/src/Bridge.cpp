@@ -19,6 +19,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QClipboard>
+#include <memory>
 #include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
@@ -761,10 +763,15 @@ void Bridge::removeMany(const QStringList &ids, bool trashFiles)
         runKept();
         return;
     }
-    run(QStringList{QStringLiteral("remove"), QStringLiteral("--forget")} + trashed,
-        [this, runKept](int code, const QByteArray &, const QByteArray &err) {
+    run(QStringList{QStringLiteral("remove"), QStringLiteral("--forget"), QStringLiteral("--json")} + trashed,
+        [this, runKept](int code, const QByteArray &out, const QByteArray &err) {
             if (code != 0)
                 emit notice(QStringLiteral("No se pudieron quitar algunos: ") + cleanError(err), true);
+            // Originales ocultos de copias ajustadas: también a la papelera (si no, quedarían sueltos
+            // y Workshop los seguiría viendo).
+            const QJsonArray originals = QJsonDocument::fromJson(out).object().value(QStringLiteral("originals")).toArray();
+            for (const QJsonValue &o : originals)
+                QFile::moveToTrash(o.toString());
             runKept();
         });
 }
@@ -907,6 +914,90 @@ void Bridge::openAdjust(const QString &path, const QString &name)
         info[QStringLiteral("name")] = name;
         emit adjustReady(info);
     });
+}
+
+void Bridge::linkInfo(const QString &url)
+{
+    const QString u = url.trimmed();
+    run({QStringLiteral("link-info"), u}, [this, u](int code, const QByteArray &out, const QByteArray &err) {
+        if (code != 0) {
+            emit linkInfoFailed(u, cleanError(err));
+            return;
+        }
+        emit linkInfoReady(u, QJsonDocument::fromJson(out).object().toVariantMap());
+    });
+}
+
+QString Bridge::clipboardUrl() const
+{
+    const QString t = QGuiApplication::clipboard()->text().trimmed();
+    return (t.startsWith(QStringLiteral("https://")) || t.startsWith(QStringLiteral("http://"))) && !t.contains(QLatin1Char('\n'))
+        ? t : QString();
+}
+
+void Bridge::linkPreview(const QString &url)
+{
+    run({QStringLiteral("link-preview"), url}, [this, url](int code, const QByteArray &out, const QByteArray &err) {
+        const QString path = QJsonDocument::fromJson(out).object().value(QStringLiteral("path")).toString();
+        if (code != 0 || path.isEmpty())
+            emit linkPreviewFailed(url, cleanError(err));
+        else
+            emit linkPreviewReady(url, path);
+    });
+}
+
+void Bridge::linkDownload(const QString &url, const QString &formatId, int convertTo, bool reencode,
+                          const QString &title, bool applyAfter)
+{
+    if (m_taskRunning) {
+        emit notice(QStringLiteral("Espera a que termine la tarea en curso"), true);
+        return;
+    }
+    m_taskRunning = true;
+    m_taskProgress = 0;
+    m_taskText = QStringLiteral("Descargando «%1»").arg(title);
+    emit taskChanged();
+
+    auto *p = new QProcess(this);
+    auto lastJson = std::make_shared<QByteArray>();
+    connect(p, &QProcess::readyReadStandardOutput, this, [this, p, lastJson] {
+        while (p->canReadLine()) {
+            const QByteArray line = p->readLine().trimmed();
+            if (line.startsWith("progress ")) {
+                m_taskProgress = line.mid(9).toInt();
+                emit taskChanged();
+            } else if (line.startsWith('{')) {
+                *lastJson = line;
+            }
+        }
+    });
+    connect(p, &QProcess::finished, this, [this, p, lastJson, title, applyAfter](int code, QProcess::ExitStatus st) {
+        p->deleteLater();
+        const QByteArray rest = p->readAllStandardOutput().trimmed();
+        if (rest.startsWith('{'))
+            *lastJson = rest.split('\n').last();
+        m_taskRunning = false;
+        emit taskChanged();
+        const QString path = QJsonDocument::fromJson(*lastJson).object().value(QStringLiteral("path")).toString();
+        if (st != QProcess::NormalExit || code != 0 || path.isEmpty()) {
+            emit notice(QStringLiteral("No se pudo descargar «%1»: %2").arg(title, cleanError(p->readAllStandardError())), true);
+            return;
+        }
+        emit linkDownloaded(path);
+        if (applyAfter) {
+            applyFile(path);   // también lo añade a la biblioteca
+        } else {
+            doImport({path}, {}, QStringLiteral("keep"));
+            emit notice(QStringLiteral("Descargado en nekowallpapers: ") + QFileInfo(path).fileName(), false);
+        }
+    });
+    QStringList args{QStringLiteral("link-download"), url, QStringLiteral("--format"), formatId,
+                     QStringLiteral("--title"), title};
+    if (convertTo > 0)
+        args << QStringLiteral("--convert") << QString::number(convertTo);
+    if (reencode)
+        args << QStringLiteral("--reencode");
+    p->start(m_cli, args);
 }
 
 void Bridge::adjustImage(const QString &target, const QString &name, double scaleX, double scaleY,

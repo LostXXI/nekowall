@@ -15,9 +15,9 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # ── Paquetes ────────────────────────────────────────────────────────────────
-COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmpeg6 glib"
+COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmpeg6 glib yt-dlp"
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
-MATE="mpv xwinwrap xprop xdotool xrandr"
+MATE="mpv xwinwrap xprop xdotool xrandr qt6-multimedia"
 
 # ── Opciones ────────────────────────────────────────────────────────────────
 ESCRITORIO=""

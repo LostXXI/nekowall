@@ -282,6 +282,14 @@ impl Library {
         Ok(self.conn.execute("DELETE FROM wallpapers WHERE id = ?1", params![id])? > 0)
     }
 
+    /// ¿Está oculto (quitado a mano o sustituido por una copia)?
+    pub fn is_ignored(&self, path: &Path) -> Result<bool, LibraryError> {
+        Ok(self.conn
+            .query_row("SELECT 1 FROM ignored WHERE path = ?1", params![path.to_string_lossy()], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
     /// Olvida un fondo SIN marcarlo como ignorado (se usa cuando el archivo se borró o se mandó a la
     /// papelera: si el usuario lo recupera, vuelve a aparecer). `false` si no estaba.
     pub fn forget(&self, id: &str) -> Result<bool, LibraryError> {

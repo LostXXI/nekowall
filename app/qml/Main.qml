@@ -17,7 +17,14 @@ ApplicationWindow {
     Component.onCompleted: Bridge.hostScreen = screen ? screen.name : ""
 
     // --page=N abre la ventana en esa página (0 Biblioteca · 1 Workshop · 2 Ajustes · 3 Acerca de).
+    // --link=<enlace>: abre Workshop con ese enlace en «Pegar enlace» (p. ej. desde el navegador).
+    readonly property string startLink: {
+        for (const a of Qt.application.arguments)
+            if (a.startsWith("--link=")) return a.slice(7)
+        return ""
+    }
     property int pageIndex: {
+        if (startLink !== "") return 1
         for (const a of Qt.application.arguments)
             if (a.startsWith("--page=")) return Math.max(0, Math.min(3, parseInt(a.slice(7)) || 0))
         return 0
@@ -314,6 +321,7 @@ ApplicationWindow {
             }
             WorkshopPage {
                 onNotify: (text, isError) => win.notify(text, isError)
+                Component.onCompleted: if (win.startLink !== "") Qt.callLater(() => openLink(win.startLink))
             }
             SettingsPage { }
             ColumnLayout {                           // Acerca de

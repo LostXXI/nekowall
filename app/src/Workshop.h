@@ -58,6 +58,9 @@ class Workshop : public QObject
     Q_PROPERTY(bool searched READ searched NOTIFY resultsChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString folder READ folder WRITE setFolder NOTIFY folderChanged)
+    // Rutas de la biblioteca: un fondo cuenta como «Descargado» solo si está en ella (si el usuario lo
+    // eliminó, se puede volver a descargar aunque quede el archivo).
+    Q_PROPERTY(QStringList libraryPaths READ libraryPaths WRITE setLibraryPaths NOTIFY downloadedChanged)
     // id → porcentaje (0-100) de las descargas en curso
     Q_PROPERTY(QVariantMap progress READ progress NOTIFY progressChanged)
     // ids de Wallhaven que ya están en la carpeta
@@ -77,6 +80,8 @@ public:
     void setFolder(const QString &f);
     QVariantMap progress() const { return m_progress; }
     QStringList downloaded() const { return m_downloaded; }
+    QStringList libraryPaths() const { return m_libraryPaths; }
+    void setLibraryPaths(const QStringList &paths);
 
     // sorting: popular | recent | toplist | random · categories: "111" (general, anime, personas)
     // atleast: "1920x1080" o "" para cualquier tamaño.
@@ -85,7 +90,7 @@ public:
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void fetchTags(const QString &id, int attempt = 1);
     Q_INVOKABLE void download(const QVariantMap &wallpaper, bool applyAfter);
-    Q_INVOKABLE QString fileFor(const QString &id) const;   // ruta descargada o ""
+    Q_INVOKABLE QString fileFor(const QString &id) const;   // ruta en la biblioteca o ""
 
 signals:
     void resultsChanged();
@@ -114,7 +119,7 @@ private:
     static bool retryable(QNetworkReply *reply);
     void setLoading(bool on);
     void setError(const QString &e);
-    void scanFolder();
+    static QString idOfPath(const QString &path);   // «…/wallhaven-1pqgxg (1920x1080).jpg» → «1pqgxg»
     static QString networkError(QNetworkReply *reply);
 
     QNetworkAccessManager *m_net = nullptr;
@@ -126,6 +131,8 @@ private:
     QString m_folder;
     QVariantMap m_progress;
     QStringList m_downloaded;
+    QStringList m_libraryPaths;
+    QHash<QString, QString> m_pathById;
 
     QString m_query, m_sorting, m_categories, m_atleast, m_seed;
     int m_page = 0;

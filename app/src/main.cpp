@@ -1,6 +1,7 @@
 // nekowall-gui            → ventana principal (biblioteca y ajustes)
 // nekowall-gui --hud      → selector rápido a pantalla completa (--hud --imagenes: empieza en imágenes)
 // nekowall-gui --import <ruta>...  → ventana principal e importa esas rutas (p. ej. «Abrir con» desde Dolphin)
+// nekowall-gui --link=<enlace>     → Workshop con ese enlace analizado en «Pegar enlace»
 // NEKOWALL_TIMING=1 imprime en stderr cuánto tarda en aparecer el primer fotograma.
 
 #include "Bridge.h"
