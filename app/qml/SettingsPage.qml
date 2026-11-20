@@ -7,7 +7,7 @@ import QtQuick.Dialogs
 ScrollView {
     id: page
     contentWidth: availableWidth
-    readonly property bool videoDesktop: Bridge.backend === "plasma" || Bridge.backend === "mate"
+    readonly property bool videoDesktop: Bridge.backend === "plasma" || Bridge.backend === "mate" || Bridge.backend === "niri"
     clip: true
 
     component SectionTitle: Label {
@@ -66,11 +66,12 @@ ScrollView {
             Button {
                 text: "Registrar atajo"
                 icon.name: "input-keyboard"
-                visible: Bridge.backend === "mate"
-                onClicked: Bridge.registerMateShortcut()
+                visible: Bridge.backend === "mate" || Bridge.backend === "niri"
+                onClicked: Bridge.backend === "niri" ? Bridge.registerNiriShortcut() : Bridge.registerMateShortcut()
             }
             Button {
-                text: Bridge.backend === "mate" ? "Cambiar en Atajos de teclado…" : "Cambiar en Ajustes del sistema…"
+                text: Bridge.backend === "mate" ? "Cambiar en Atajos de teclado…"
+                    : Bridge.backend === "niri" ? "Abrir nekowall.kdl…" : "Cambiar en Ajustes del sistema…"
                 icon.name: "configure-shortcuts"
                 onClicked: Bridge.openShortcutSettings()
             }
@@ -103,8 +104,15 @@ ScrollView {
 
         SectionTitle { text: "Vídeo: pausa y ahorro"; visible: page.videoDesktop }
         Hint {
-            visible: !page.videoDesktop && Bridge.backend !== ""
+            visible: !page.videoDesktop && Bridge.backend !== "" && Bridge.backend !== "niri"
             text: "Los fondos de vídeo todavía no están disponibles en este escritorio (" + Bridge.backend + "): por ahora NekoWall aplica imágenes."
+        }
+        Hint {
+            visible: Bridge.backend === "niri"
+            text: Bridge.videoSupported
+                  ? "En niri los vídeos de fondo los reproduce mpvpaper (uno por pantalla, sin sonido) y NekoWall los pausa según estas opciones (cada pantalla por separado). "
+                    + "Debajo queda un fotograma del vídeo, así los colores del sistema (Noctalia) siguen al fondo."
+                  : "Para fondos de vídeo en niri instala mpvpaper:  sudo xbps-install -S mpvpaper"
         }
         Hint {
             visible: Bridge.backend === "mate" && !Bridge.videoPluginInstalled
@@ -191,9 +199,11 @@ ScrollView {
         SectionTitle { text: "Escritorio" }
         Hint {
             text: "Backend: " + (Bridge.backend || "detectando…")
-                  + (Bridge.backend === "plasma" ? " (KDE Plasma)" : Bridge.backend === "mate" ? " (MATE, X11)" : "")
+                  + (Bridge.backend === "plasma" ? " (KDE Plasma)" : Bridge.backend === "mate" ? " (MATE, X11)"
+                     : Bridge.backend === "niri" ? " (niri, Wayland · imágenes con Noctalia o awww)" : "")
                   + " · Fondos de vídeo: " + (Bridge.videoSupported
                         ? (Bridge.backend === "mate" ? "disponibles (mpv + xwinwrap)"
+                           : Bridge.backend === "niri" ? "disponibles (mpvpaper)"
                                                      : "disponibles (plugin Smart Video Wallpaper Reborn)")
                         : Bridge.backend === "plasma" ? "no disponibles; instala un plugin de vídeo para Plasma 6"
                                                       : "aún no implementados en este escritorio")

@@ -2,6 +2,7 @@ use nekowall_backend::{WallpaperBackend, WallpaperKind};
 use nekowall_core::Service;
 use nekowall_library::{Entry, Filter, Library};
 use nekowall_mate::MateBackend;
+use nekowall_niri::NiriBackend;
 use nekowall_plasma::PlasmaBackend;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -46,6 +47,7 @@ USO:
                                        imagen en la pantalla). Siempre parte del original.
                                        Con --replace-in-library la biblioteca usa la copia (y si era
                                        el fondo puesto, se cambia por la copia)
+  nekowall niri-shortcut --gui RUTA     niri: atajo Meta+Alt+W y arranque de NekoWall (nekowall.kdl)
   nekowall link-info <enlace>          Título, vista previa y formatos de un enlace (JSON; usa yt-dlp)
   nekowall link-preview <enlace>       Vista previa corta en H.264 (para vídeos AV1/H.265)
   nekowall link-download <enlace> --format ID [--convert ALTURA [--reencode]] [--title T] [--out CARPETA]
@@ -302,9 +304,12 @@ fn detect_backend() -> Box<dyn WallpaperBackend> {
     match std::env::var("NEKOWALL_BACKEND").ok().as_deref() {
         Some("mate") => return Box::new(MateBackend::new()),
         Some("plasma") => return Box::new(PlasmaBackend::new()),
+        Some("niri") => return Box::new(NiriBackend::new()),
         _ => {}
     }
-    if MateBackend::is_current_desktop() {
+    if NiriBackend::is_current_desktop() {
+        Box::new(NiriBackend::new())
+    } else if MateBackend::is_current_desktop() {
         Box::new(MateBackend::new())
     } else {
         Box::new(PlasmaBackend::new())
@@ -425,6 +430,25 @@ fn run(args: &[String]) -> Result<(), String> {
     if cmd == "_mate-video" {
         // Sin argumento: lee los vídeos de cada pantalla. Con ruta: autostart de versiones anteriores.
         return nekowall_mate::video::run_daemon(args.get(1).map(Path::new));
+    }
+
+    // niri: vigilante que pausa los vídeos de fondo según las ventanas (lo lanza `apply`).
+    if cmd == "_niri-video" {
+        return nekowall_niri::run_watcher();
+    }
+    // niri: al iniciar sesión vuelve a poner los vídeos de fondo (lo lanza ~/.config/niri/nekowall.kdl).
+    if cmd == "_niri-restore" {
+        let n = NiriBackend::new().restore().map_err(|e| e.to_string())?;
+        println!("Vídeos de fondo restaurados: {n}");
+        return Ok(());
+    }
+    // niri: registra el atajo Meta+Alt+W (selector rápido) en ~/.config/niri/nekowall.kdl.
+    if cmd == "niri-shortcut" {
+        let gui = opt(&args[1..], "--gui").ok_or("uso: nekowall niri-shortcut --gui /ruta/a/nekowall-gui")?;
+        let cli = std::env::current_exe().map_err(|e| e.to_string())?;
+        let f = nekowall_niri::register_shortcut(&cli, Path::new(gui)).map_err(|e| e.to_string())?;
+        println!("Atajo Meta+Alt+W registrado en {} (niri lo aplica al momento)", f.display());
+        return Ok(());
     }
 
     // MATE: alterna «mostrar escritorio» (oculta y pausa el vídeo de fondo para ver los iconos de Caja).
@@ -718,7 +742,8 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "video-settings" => {
             let mate = svc.backend_name() == "mate";
-            if !mate && svc.backend_name() != "plasma" {
+            let niri = svc.backend_name() == "niri";
+            if !mate && !niri && svc.backend_name() != "plasma" {
                 return Err(format!(
                     "las opciones de pausa del vídeo no existen en este escritorio ({})",
                     svc.backend_name()
@@ -726,9 +751,14 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let plasma = PlasmaBackend::new();
             let m = nekowall_mate::video::load_settings();
+            let n = nekowall_niri::load_settings();
             let mut s = if mate {
                 nekowall_plasma::VideoPauseSettings {
                     pause_mode: m.pause_mode, battery_pauses: m.battery_pauses, battery_level: m.battery_level,
+                }
+            } else if niri {
+                nekowall_plasma::VideoPauseSettings {
+                    pause_mode: n.pause_mode, battery_pauses: n.battery_pauses, battery_level: n.battery_level,
                 }
             } else {
                 plasma.video_pause_settings()
@@ -750,7 +780,14 @@ fn run(args: &[String]) -> Result<(), String> {
                 s.battery_level = v.parse().map_err(|_| format!("--battery-level inválido: {v}"))?;
                 changed = true;
             }
-            if changed {
+            if changed && niri {
+                if s.pause_mode > 3 || s.battery_level > 100 {
+                    return Err(format!("valores fuera de rango: modo {} (0-3), batería {} % (0-100)", s.pause_mode, s.battery_level));
+                }
+                nekowall_niri::save_settings(&nekowall_niri::PauseSettings {
+                    pause_mode: s.pause_mode, battery_pauses: s.battery_pauses, battery_level: s.battery_level,
+                }).map_err(|e| e.to_string())?;
+            } else if changed {
                 if mate {
                     if s.pause_mode > 3 || s.battery_level > 100 {
                         return Err(format!("valores fuera de rango: modo {} (0-3), batería {} % (0-100)", s.pause_mode, s.battery_level));
@@ -766,7 +803,9 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("{}", serde_json::json!({
                     "pause_mode": s.pause_mode, "battery_pauses": s.battery_pauses,
                     "battery_level": s.battery_level,
-                    "plugin": if mate { MateBackend::new().video_available() } else { plasma.video_plugin_installed() },
+                    "plugin": if mate { MateBackend::new().video_available() }
+                              else if niri { nekowall_niri::video_available() }
+                              else { plasma.video_plugin_installed() },
                 }));
             } else {
                 const MODES: [&str; 4] = ["ventana maximizada o a pantalla completa", "ventana activa",

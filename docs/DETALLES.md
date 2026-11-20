@@ -119,7 +119,44 @@ Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerr
   arrancar al iniciar sesión.
 - Sin compositor con desenfoque, el selector usa un fondo oscuro en lugar de cristal.
 
-### Compilar (los dos escritorios)
+### Instalar en niri
+
+#### 1. Dependencias
+
+```bash
+sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
+    ffmpeg6 glib yt-dlp mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia
+```
+
+#### 2. Compilar e instalar
+
+Igual que en los otros escritorios (abajo). Después registra el atajo y el arranque:
+
+```bash
+~/.local/bin/nekowall niri-shortcut --gui ~/.local/bin/nekowall-gui
+```
+
+Eso crea `~/.config/niri/nekowall.kdl` (atajo **Meta+Alt+W** y `spawn-at-startup` que restaura el vídeo de
+fondo al iniciar sesión) y añade `include "nekowall.kdl"` al final de `config.kdl`. niri lo aplica al momento.
+Para quitarlo: borra ese archivo y la línea `include`.
+
+#### Cómo funciona en niri
+
+- **Pantallas**: `niri msg -j outputs`.
+- **Imágenes**: si **Noctalia** está en marcha (la trae neko-void niri), `noctalia msg wallpaper-set
+  [pantalla] <ruta>`: Noctalia hace la transición y genera los colores del sistema a partir del fondo. Sin
+  Noctalia, **awww** (`awww img`, NekoWall arranca `awww-daemon` si hace falta).
+- **Vídeos**: un **mpvpaper** por pantalla en la capa `bottom` (encima del fondo y debajo de las ventanas),
+  sin audio y en bucle. Debajo se pone un fotograma del vídeo, así los colores de Noctalia siguen al vídeo.
+- **Pausa**: el vigilante `nekowall _niri-video` mira cada segundo las ventanas del escritorio activo de cada
+  pantalla y pausa ese vídeo según Ajustes (ventana maximizada / activa / cualquiera / nunca, y batería
+  baja). Medido en la VM: 40 % de CPU con el vídeo a la vista y 0 % con una ventana maximizada encima.
+- **Estado**: `~/.config/nekowall/niri.conf`. Al iniciar sesión, `nekowall _niri-restore` vuelve a poner los
+  vídeos (las imágenes las recuerdan Noctalia/awww).
+- **Selector rápido**: la versión Wayland (layer-shell), igual que en KDE.
+- *Probado en una máquina virtual con neko-void niri (niri 26.04, Noctalia 5.2.1).*
+
+### Compilar (todos los escritorios)
 
 ```bash
 git clone https://github.com/LostXXI/nekowall.git
@@ -141,7 +178,7 @@ Comprobar que todo funciona (opcional): `cargo test`. Probarlo sin instalar:
 ./app/build/nekowall-gui --hud                            # selector rápido
 ```
 
-### Instalar el programa (los dos escritorios)
+### Instalar el programa (todos los escritorios)
 
 Para tu usuario, sin `sudo`. Copia los dos programas **a la misma carpeta** (la interfaz busca `nekowall` a su
 lado) y crea el acceso del menú:

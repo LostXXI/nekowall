@@ -1,6 +1,6 @@
 # NekoWall
 
-Pon **imágenes y vídeos** como fondo de pantalla en **Void Linux** / neko-void, con **KDE Plasma** o **MATE**.
+Pon **imágenes y vídeos** como fondo de pantalla en **Void Linux** / neko-void, con **KDE Plasma**, **MATE** o **niri**.
 
 ## Instalación paso a paso
 
@@ -12,7 +12,7 @@ Abre una terminal y escribe:
 echo $XDG_CURRENT_DESKTOP
 ```
 
-- Si sale **KDE** o **MATE** → sigue al paso 2.
+- Si sale **KDE**, **MATE** o **niri** → sigue al paso 2.
 - Si sale otra cosa (XFCE, LXQt, i3…) → todavía no es compatible, lo siento.
 
 ### Paso 2 · Descarga NekoWall
@@ -38,7 +38,7 @@ menú de aplicaciones.
 
 ### Paso 4 · Solo KDE: cierra sesión y vuelve a entrar
 
-Hazlo **una vez**, para que funcione el atajo **Meta+Alt+W**. (En MATE no hace falta.)
+Hazlo **una vez**, para que funcione el atajo **Meta+Alt+W**. (En MATE y niri no hace falta: el atajo funciona al momento.)
 
 **¿Quieres vídeos de fondo en KDE?** Instala el plugin *Smart Video Wallpaper Reborn*:
 clic derecho en el escritorio → **Configurar el escritorio y el fondo de pantalla…** →
@@ -108,8 +108,9 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
   pantalla donde está el ratón, o eliges otra (o todas) con el botón del selector o de la biblioteca.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.
 - **Cerrado no gasta memoria**: no deja nada funcionando en segundo plano.
-- Detecta solo tu escritorio: en **KDE** usa las herramientas de Plasma y en **MATE** reproduce el vídeo con
-  `mpv` detrás de tus ventanas.
+- Detecta solo tu escritorio: en **KDE** usa las herramientas de Plasma, en **MATE** reproduce el vídeo con
+  `mpv` detrás de tus ventanas y en **niri** pone las imágenes con Noctalia (o awww) y los vídeos con
+  `mpvpaper`. Con Noctalia, los colores del sistema siguen al fondo.
 
 Está hecho en Rust (el núcleo) y Qt/QML (la interfaz). Instalación manual, uso desde la terminal y detalles
 técnicos: [docs/DETALLES.md](docs/DETALLES.md).

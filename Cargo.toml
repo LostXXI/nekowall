@@ -5,6 +5,7 @@ members = [
     "crates/nekowall-library",
     "crates/nekowall-plasma",
     "crates/nekowall-mate",
+    "crates/nekowall-niri",
     "crates/nekowall-core",
     "crates/nekowall-cli",
 ]

@@ -107,6 +107,7 @@ dependencies = [
  "nekowall-core",
  "nekowall-library",
  "nekowall-mate",
+ "nekowall-niri",
  "nekowall-plasma",
  "serde_json",
 ]
@@ -132,6 +133,14 @@ name = "nekowall-mate"
 version = "0.1.0"
 dependencies = [
  "nekowall-backend",
+]
+
+[[package]]
+name = "nekowall-niri"
+version = "0.1.0"
+dependencies = [
+ "nekowall-backend",
+ "serde_json",
 ]
 
 [[package]]

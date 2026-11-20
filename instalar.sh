@@ -3,7 +3,7 @@
 # compila e instala el programa para tu usuario.
 #
 #   ./instalar.sh                 detecta el escritorio y pregunta en cada paso
-#   ./instalar.sh --kde | --mate  fuerza el escritorio
+#   ./instalar.sh --kde | --mate | --niri  fuerza el escritorio
 #   ./instalar.sh --solo-dependencias
 #   ./instalar.sh --si            responde «sí» a todo (sin preguntas)
 #   ./instalar.sh --simular       muestra lo que haría, sin instalar ni cambiar nada
@@ -18,6 +18,7 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmpeg6 glib yt-dlp"
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
 MATE="mpv xwinwrap xprop xdotool xrandr qt6-multimedia"
+NIRI="mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia"
 
 # ── Opciones ────────────────────────────────────────────────────────────────
 ESCRITORIO=""
@@ -28,6 +29,7 @@ for a in "$@"; do
     case "$a" in
         --kde) ESCRITORIO=kde ;;
         --mate) ESCRITORIO=mate ;;
+        --niri) ESCRITORIO=niri ;;
         --solo-dependencias) SOLO_DEPS=1 ;;
         --si|--sí|-y) SI=1 ;;
         --simular) SIMULAR=1 ;;
@@ -74,17 +76,19 @@ if [ -z "$ESCRITORIO" ]; then
     case "$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')" in
         *kde*) ESCRITORIO=kde ;;
         *mate*) ESCRITORIO=mate ;;
+        *niri*) ESCRITORIO=niri ;;
     esac
 fi
 if [ -z "$ESCRITORIO" ]; then
     aviso "no reconozco tu escritorio (XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-vacío})."
-    echo "NekoWall funciona en KDE Plasma (Wayland) y MATE (X11). Elige con --kde o --mate."
+    echo "NekoWall funciona en KDE Plasma (Wayland), MATE (X11) y niri (Wayland). Elige con --kde, --mate o --niri."
     exit 1
 fi
 
 case "$ESCRITORIO" in
     kde) NOMBRE="KDE Plasma"; PAQUETES="$COMUNES $KDE" ;;
     mate) NOMBRE="MATE"; PAQUETES="$COMUNES $MATE" ;;
+    niri) NOMBRE="niri"; PAQUETES="$COMUNES $NIRI" ;;
 esac
 
 paso "Escritorio: $NOMBRE · permisos con: $ROOT$( [ "$SIMULAR" = 1 ] && echo ' · MODO SIMULACIÓN')"
@@ -188,6 +192,10 @@ if [ "$ESCRITORIO" = mate ]; then
     hacer gsettings set "$KB:/org/mate/desktop/keybindings/nekowall-peek/" action "'\"$BIN/nekowall\" peek'"
     hacer gsettings set "$KB:/org/mate/desktop/keybindings/nekowall-peek/" binding "'<Mod4><Alt>d'"
     ATAJOS="Meta+Alt+W abre el selector y Meta+Alt+D muestra los iconos con un vídeo de fondo (ya funcionan)."
+elif [ "$ESCRITORIO" = niri ]; then
+    # ~/.config/niri/nekowall.kdl: atajo Meta+Alt+W y restaurar el fondo de vídeo al iniciar sesión.
+    hacer "$BIN/nekowall" niri-shortcut --gui "$BIN/nekowall-gui"
+    ATAJOS="Meta+Alt+W abre el selector (niri ya lo está usando)."
 else
     command -v kbuildsycoca6 >/dev/null 2>&1 && hacer kbuildsycoca6 >/dev/null 2>&1 || true
     ATAJOS="Cierra sesión y vuelve a entrar una vez para que KDE active Meta+Alt+W (selector)."

@@ -14,4 +14,5 @@ nekowall-library = { path = "../nekowall-library" }
 nekowall-core = { path = "../nekowall-core" }
 nekowall-plasma = { path = "../nekowall-plasma" }
 nekowall-mate = { path = "../nekowall-mate" }
+nekowall-niri = { path = "../nekowall-niri" }
 serde_json = "1"

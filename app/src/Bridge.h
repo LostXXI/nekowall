@@ -117,6 +117,7 @@ public:
     Q_INVOKABLE void openShortcutSettings();
     // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
     Q_INVOKABLE void registerMateShortcut();
+    Q_INVOKABLE void registerNiriShortcut();   // Meta+Alt+W en ~/.config/niri/nekowall.kdl
     Q_INVOKABLE void revealInFolder(const QString &path);
     Q_INVOKABLE void openDefaultFolder();
 

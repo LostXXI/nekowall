@@ -796,8 +796,28 @@ void Bridge::openHud()
     QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--hud")});
 }
 
+void Bridge::registerNiriShortcut()
+{
+    run({QStringLiteral("niri-shortcut"), QStringLiteral("--gui"), QCoreApplication::applicationFilePath()},
+        [this](int code, const QByteArray &, const QByteArray &err) {
+            if (code != 0)
+                emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(err), true);
+            else
+                emit notice(QStringLiteral("Atajo Meta+Alt+W registrado: niri ya lo está usando"), false);
+        });
+}
+
 void Bridge::openShortcutSettings()
 {
+    if (m_backend == QStringLiteral("niri")) {
+        // niri no tiene ventana de ajustes: se abre el archivo de NekoWall (o config.kdl) en el editor.
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/niri/");
+        const QString f = QFileInfo::exists(dir + QStringLiteral("nekowall.kdl")) ? dir + QStringLiteral("nekowall.kdl")
+                                                                                     : dir + QStringLiteral("config.kdl");
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(f)))
+            emit notice(QStringLiteral("No se pudo abrir ") + f, true);
+        return;
+    }
     const bool ok = m_backend == QStringLiteral("mate")
         ? QProcess::startDetached(QStringLiteral("mate-keybinding-properties"), {})
         : QProcess::startDetached(QStringLiteral("systemsettings"), {QStringLiteral("kcm_keys")});
