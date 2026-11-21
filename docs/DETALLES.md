@@ -154,7 +154,9 @@ Para quitarlo: borra ese archivo y la línea `include`.
 - **Estado**: `~/.config/nekowall/niri.conf`. Al iniciar sesión, `nekowall _niri-restore` vuelve a poner los
   vídeos (las imágenes las recuerdan Noctalia/awww).
 - **Selector rápido**: la versión Wayland (layer-shell), igual que en KDE.
-- *Probado en una máquina virtual con neko-void niri (niri 26.04, Noctalia 5.2.1).*
+- *Probado en una máquina virtual con neko-void niri (niri 26.04, Noctalia 5.2.1), también con dos pantallas:
+  imagen en una y vídeo en la otra, dos vídeos distintos, pausa por pantalla y el selector rápido abriéndose
+  en la pantalla activa. Workshop, Pegar enlace (con vista previa) y la descarga también funcionan.*
 
 ### Compilar (todos los escritorios)
 

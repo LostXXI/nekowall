@@ -12,8 +12,12 @@ Window {
     id: root
 
     title: "NekoWall"
-    // Cristal si el compositor desenfoca (KWin); si no (p. ej. MATE/X11), fondo oscuro opaco.
-    color: Bridge.glass ? "transparent" : "#0b0f14"
+    // Cristal si el compositor desenfoca (KWin). En Wayland sin cristal (niri) la ventana también es
+    // transparente y el fondo oscuro va dentro del contenido, para que aparezca con él (si fuera el color
+    // de la ventana se vería un fotograma negro antes de la animación). En X11 (MATE) la transparencia
+    // depende del compositor: ahí el fondo es opaco y el contenido aparece sin fundido.
+    readonly property bool opaqueWindow: !Bridge.glass && !Bridge.wayland
+    color: opaqueWindow ? "#0b0f14" : "transparent"
     visible: false
     width: Screen.width
     height: Screen.height
@@ -33,6 +37,7 @@ Window {
         if (revealed) return
         revealed = true
         revealTimer.stop()
+        if (root.opaqueWindow) content.opacity = 1   // sin fundido desde negro
         root.showWindow()
         if (root.reduced) content.opacity = 1
         else fadeIn.start()
@@ -148,6 +153,7 @@ Window {
     function close() {
         if (closing) return
         closing = true
+        Bridge.hudClosing()
         if (reduced || !revealed) Qt.quit()
         else fadeOut.start()
     }
@@ -231,6 +237,11 @@ Window {
         }
 
         // Fondo: la miniatura seleccionada del carrusel activo, ampliada y desenfocada.
+        Rectangle {                         // fondo oscuro (Wayland sin cristal): aparece con el contenido
+            anchors.fill: parent
+            color: "#0b0f14"
+            visible: !Bridge.glass && !root.opaqueWindow
+        }
         // Tono del fondo seleccionado: la miniatura a 48 px ampliada ya se ve desenfocada,
         // sin MultiEffect (KWin desenfoca el escritorio de detrás).
         Image {

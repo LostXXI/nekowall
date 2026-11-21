@@ -17,6 +17,11 @@
 #include <QQuickWindow>
 #include <QIcon>
 #include <QLocalServer>
+#include <QLockFile>
+#include <QTimer>
+#include <utility>
+#include <QDir>
+#include <QStandardPaths>
 #include <QLocalSocket>
 #include <unistd.h>
 #include <QFileInfo>
@@ -44,6 +49,10 @@ int main(int argc, char *argv[])
     // proceso termina sin abrir otra ventana. Así, pulsar Meta+Alt+W muchas veces seguidas lo abre y lo
     // cierra en vez de amontonar selectores hasta llenar la memoria.
     QLocalServer *hudServer = nullptr;
+    const bool hudDebug = qEnvironmentVariableIsSet("NEKOWALL_HUD_DEBUG");
+    auto hudLog = [hudDebug](const char *msg) {
+        if (hudDebug) std::fprintf(stderr, "[hud %lld %d] %s\n", (long long)QDateTime::currentMSecsSinceEpoch() % 100000, (int)getpid(), msg);
+    };
     if (hud) {
         const QString name = QStringLiteral("nekowall-hud-%1").arg(getuid());
         auto toggleExisting = [&name] {
@@ -55,17 +64,31 @@ int main(int argc, char *argv[])
             s.waitForBytesWritten(200);
             return true;
         };
-        if (toggleExisting())
+        // Candado: las pulsaciones muy seguidas deciden de una en una (si no, dos procesos que arrancan a la
+        // vez podían no verse y el estado final no coincidía con el número de pulsaciones).
+        QString lockDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+        if (lockDir.isEmpty())
+            lockDir = QDir::tempPath();
+        QLockFile turn(lockDir + QStringLiteral("/nekowall-hud.lock"));
+        turn.setStaleLockTime(3000);
+        turn.tryLock(3000);
+        if (toggleExisting()) {
+            hudLog("había uno abierto: le pido que se cierre");
             return 0;
+        }
         hudServer = new QLocalServer(&app);
         hudServer->setSocketOptions(QLocalServer::UserAccessOption);
         if (!hudServer->listen(name)) {
             // Otro selector acaba de abrirse a la vez (pulsaciones muy seguidas) o quedó un socket viejo.
-            if (toggleExisting())
+            if (toggleExisting()) {
+                hudLog("carrera: otro acababa de abrirse, le pido que se cierre");
                 return 0;
+            }
             QLocalServer::removeServer(name);
             hudServer->listen(name);
         }
+        hudLog("abro el selector");
+        turn.unlock();   // ya escucha: la siguiente pulsación lo encontrará
     }
     // Estilo Breeze de KDE para los controles, salvo que el usuario elija otro.
     // Estilo de los controles: Breeze en KDE si su módulo QML está instalado (kf6-qqc2-desktop-style);
@@ -109,9 +132,29 @@ int main(int argc, char *argv[])
 
     // Otra pulsación del atajo mientras el selector está abierto: se cierra (con su animación).
     if (hudServer) {
-        QObject::connect(hudServer, &QLocalServer::newConnection, &app, [hudServer, &engine] {
-            while (QLocalSocket *c = hudServer->nextPendingConnection())
+        // Mientras se cierra (animación de 0,15 s) ya no responde: la pulsación siguiente abre otro.
+        QObject::connect(&bridge, &Bridge::hudClosingStarted, hudServer, [hudServer, hudLog] {
+            hudLog("me cierro: dejo de atender el atajo");
+            hudServer->close();   // también borra su socket
+        });
+        // Cada pulsación es «abrir/cerrar». Las que llegan muy juntas se cuentan todas antes de decidir
+        // (se espera 80 ms por si llega otra): un número impar cierra y uno par deja el selector como está.
+        auto pending = std::make_shared<int>(0);
+        auto settle = new QTimer(&app);
+        settle->setSingleShot(true);
+        settle->setInterval(80);
+        QObject::connect(hudServer, &QLocalServer::newConnection, &app, [hudServer, pending, settle] {
+            while (QLocalSocket *c = hudServer->nextPendingConnection()) {
+                ++*pending;
                 QObject::connect(c, &QLocalSocket::disconnected, c, &QObject::deleteLater);
+            }
+            settle->start();
+        });
+        QObject::connect(settle, &QTimer::timeout, &app, [pending, &engine, hudLog] {
+            const int n = std::exchange(*pending, 0);
+            hudLog(n % 2 ? "me piden cerrar" : "pulsaciones pares juntas: sigo abierto");
+            if (n % 2 == 0)
+                return;
             if (QObject *w = engine.rootObjects().value(0))
                 QMetaObject::invokeMethod(w, "close");
         });
@@ -150,5 +193,7 @@ int main(int argc, char *argv[])
             });
         }
     }
-    return app.exec();
+    const int r = app.exec();
+    hudLog("terminé");
+    return r;
 }

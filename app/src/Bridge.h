@@ -114,6 +114,8 @@ public:
     Q_INVOKABLE void removeMany(const QStringList &ids, bool trashFiles);
     Q_INVOKABLE void regenerateThumbs();
     Q_INVOKABLE void openHud();
+    // El selector empieza a cerrarse: deja de atender el atajo para que la siguiente pulsación abra uno nuevo.
+    Q_INVOKABLE void hudClosing() { emit hudClosingStarted(); }
     Q_INVOKABLE void openShortcutSettings();
     // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
     Q_INVOKABLE void registerMateShortcut();
@@ -185,6 +187,7 @@ signals:
     void linkDownloaded(const QString &path);
     void linkPreviewReady(const QString &url, const QString &path);
     void linkPreviewFailed(const QString &url, const QString &message);
+    void hudClosingStarted();
     void adjustReady(const QVariantMap &info);   // target, source, name, width, height
     void applied(bool ok, const QString &id, const QString &message);
     void error(const QString &message);
