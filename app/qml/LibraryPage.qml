@@ -112,7 +112,7 @@ Item {
             }
             Button {
                 text: "Seleccionar"
-                icon.name: "edit-select"
+                icon.name: "checkbox"
                 checkable: true
                 checked: page.selecting
                 onToggled: page.selecting = checked
@@ -184,7 +184,8 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             readonly property int columns: Math.max(1, Math.floor(width / 260))
             cellWidth: Math.floor(width / columns)
-            cellHeight: cellWidth * 9 / 16 + 160
+            // miniatura 16:9 + nombre + tipo + botones + márgenes (sin hueco vacío debajo)
+            cellHeight: Math.round((cellWidth - 28) * 9 / 16) + 124
             model: page.shown
             cacheBuffer: cellHeight * 2
             ScrollBar.vertical: ScrollBar { }

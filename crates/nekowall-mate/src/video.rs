@@ -550,6 +550,17 @@ fn spy_stacking(tx: std::sync::mpsc::Sender<()>) -> Option<Child> {
     Some(child)
 }
 
+/// Vuelve a mostrar la ventana del vídeo (tras «mostrar escritorio»). Al ocultarla y mostrarla, Marco
+/// olvida su estado: sin esto aparecía en la barra de tareas y fuera de la capa «debajo» (y al subirla
+/// podía quedar encima de las ventanas).
+fn show_video_window(id: &str) {
+    xdotool(&["windowmap", id]);
+    for st in ["add,below,sticky", "add,skip_taskbar,skip_pager"] {
+        let _ = Command::new("wmctrl").args(["-i", "-r", id, "-b", st])
+            .stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+}
+
 fn xdotool(args: &[&str]) {
     let _ = Command::new("xdotool").args(args).stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
@@ -603,7 +614,10 @@ impl Player {
         let before = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"]));
         let child = Command::new("xwinwrap")
             .args(["-g", &format!("{}x{}+{}+{}", m.width, m.height, m.x, m.y)])
-            .args(["-ni", "-fdt", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
+            // Sin -fdt: la ventana del vídeo NO es de tipo «escritorio» sino una ventana normal en la capa
+            // «debajo» (-b), que Marco pone siempre por encima del escritorio. Antes, al ser las dos de tipo
+            // escritorio, un clic en el escritorio subía Caja y sus iconos se veían un instante.
+            .args(["-ni", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
             // --no-config y --load-scripts=no: el fondo ignora la configuración personal de mpv del
             // usuario. Sin esto, un script de controles (ModernZ, uosc…) instalado en ~/.config/mpv/scripts
             // dibujaba su barra de reproducción encima del fondo (visto en el equipo de un amigo de Lost).
@@ -617,14 +631,16 @@ impl Player {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("no se pudo lanzar xwinwrap/mpv: {e}"))?;
-        // Ventana propia: nueva, de tipo escritorio y sin WM_CLASS. Se espera hasta 5 s.
+        // Ventana propia: nueva, sin WM_CLASS (xwinwrap no lo pone) y en la capa «debajo» (o de tipo
+        // escritorio, en versiones anteriores). Se espera hasta 5 s.
         let mut own = None;
         for _ in 0..25 {
             std::thread::sleep(Duration::from_millis(200));
             own = window_ids(&xprop(&["-root", "_NET_CLIENT_LIST"])).into_iter().find(|id| {
                 !before.contains(id) && {
-                    let p = xprop(&["-id", id, "_NET_WM_WINDOW_TYPE", "WM_CLASS"]);
-                    p.contains("_NET_WM_WINDOW_TYPE_DESKTOP") && !p.contains("desktop_window")
+                    let p = xprop(&["-id", id, "_NET_WM_WINDOW_TYPE", "_NET_WM_STATE", "WM_CLASS"]);
+                    !p.contains("WM_CLASS(STRING)")
+                        && (p.contains("_NET_WM_STATE_BELOW") || p.contains("_NET_WM_WINDOW_TYPE_DESKTOP"))
                 }
             });
             if own.is_some() {
@@ -766,7 +782,7 @@ pub fn run_daemon(legacy: Option<&Path>) -> Result<(), String> {
                         mpv_pause(m, true);
                         xdotool(&["windowunmap", id]);
                     } else {
-                        xdotool(&["windowmap", id]);
+                        show_video_window(id);
                     }
                 }
                 p.paused = !p.paused; // fuerza a reaplicar el estado de pausa abajo

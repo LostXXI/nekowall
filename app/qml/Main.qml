@@ -39,14 +39,13 @@ ApplicationWindow {
     Component.onCompleted: Bridge.hostScreen = screen ? screen.name : ""
 
     // --page=N abre la ventana en esa página (0 Biblioteca · 1 Workshop · 2 Ajustes · 3 Acerca de).
-    // --link=<enlace>: abre Workshop con ese enlace en «Pegar enlace» (p. ej. desde el navegador).
+    // --link=<enlace>: abre «Descargar con enlace» con ese enlace ya analizado (p. ej. desde el navegador).
     readonly property string startLink: {
         for (const a of Qt.application.arguments)
             if (a.startsWith("--link=")) return a.slice(7)
         return ""
     }
     property int pageIndex: {
-        if (startLink !== "") return 1
         for (const a of Qt.application.arguments)
             if (a.startsWith("--page=")) return Math.max(0, Math.min(3, parseInt(a.slice(7)) || 0))
         return 0
@@ -113,6 +112,10 @@ ApplicationWindow {
     }
 
     AdjustDialog { id: adjustDialog }
+    LinkDialog {
+        id: linkDialog
+        Component.onCompleted: if (win.startLink !== "") Qt.callLater(() => linkDialog.openWith(win.startLink))
+    }
 
     // Vídeos más grandes que la pantalla (al importar) o vídeo a optimizar (menú contextual).
     Dialog {
@@ -266,34 +269,59 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             Button {
+                text: "Añadir"
+                icon.name: "list-add"
+                visible: win.pageIndex === 0         // solo en la Biblioteca
+                onClicked: addMenu.popup(this, 0, height)
+                ToolTip.visible: hovered && !addMenu.visible
+                ToolTip.text: "Añadir fondos a la biblioteca"
+                Menu {
+                    id: addMenu
+                    MenuItem { text: "Archivos…   (Ctrl+O)"; icon.name: "document-open"; onTriggered: filesDialog.open() }
+                    MenuItem { text: "Carpeta…   (Ctrl+Mayús+O)"; icon.name: "folder-add"; onTriggered: folderDialog.open() }
+                    MenuSeparator { visible: Bridge.defaultFolder !== "" }
+                    MenuItem {
+                        text: "Abrir «Mis fondos» (nekowallpapers)"
+                        icon.name: "folder-pictures"
+                        visible: Bridge.defaultFolder !== ""
+                        height: visible ? implicitHeight : 0
+                        onTriggered: Bridge.openDefaultFolder()
+                    }
+                }
+            }
+            Button {
+                // Descargar un fondo desde un enlace (YouTube, Reddit, un vídeo directo…): botón azul.
+                id: linkButton
+                text: "Descargar con enlace"
+                visible: win.pageIndex === 0         // solo en la Biblioteca, junto a «Añadir»
+                onClicked: linkDialog.openWith("")
+                ToolTip.visible: hovered
+                ToolTip.text: "Descarga un fondo (también animado) desde un enlace: YouTube, Reddit, una página con vídeo o un archivo directo. Eliges el formato."
+                contentItem: Label {
+                    text: linkButton.text
+                    color: "white"
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    implicitHeight: 32
+                    radius: 5
+                    color: linkButton.down ? "#1565c0" : linkButton.hovered ? "#3d9bff" : "#1e88ff"
+                    border.width: linkButton.visualFocus ? 2 : 0
+                    border.color: "white"
+                }
+                leftPadding: 14
+                rightPadding: 14
+            }
+            Button {
                 text: "Selector rápido"
                 icon.name: "view-preview"
+                visible: win.pageIndex === 0         // solo en la Biblioteca
+                highlighted: true                    // la acción principal
                 onClicked: Bridge.openHud()
                 ToolTip.visible: hovered
                 ToolTip.text: "Abrir el HUD (" + Bridge.shortcut + " desde cualquier lugar)"
-            }
-            Button {
-                text: "Mis fondos"
-                icon.name: "folder-pictures"
-                visible: Bridge.defaultFolder !== ""
-                onClicked: Bridge.openDefaultFolder()
-                ToolTip.visible: hovered
-                ToolTip.text: "Abre " + Bridge.defaultFolder + ": lo que copies ahí aparece solo en NekoWall"
-            }
-            Button {
-                text: "Añadir archivos…"
-                icon.name: "list-add"
-                onClicked: filesDialog.open()
-                ToolTip.visible: hovered
-                ToolTip.text: "Imágenes o vídeos sueltos (Ctrl+O)"
-            }
-            Button {
-                text: "Añadir carpeta…"
-                icon.name: "folder-add"
-                highlighted: true
-                onClicked: folderDialog.open()
-                ToolTip.visible: hovered
-                ToolTip.text: "Indexa todos los fondos de una carpeta (Ctrl+Mayús+O)"
             }
         }
     }
@@ -343,7 +371,6 @@ ApplicationWindow {
             }
             WorkshopPage {
                 onNotify: (text, isError) => win.notify(text, isError)
-                Component.onCompleted: if (win.startLink !== "") Qt.callLater(() => openLink(win.startLink))
             }
             SettingsPage { }
             ColumnLayout {                           // Acerca de

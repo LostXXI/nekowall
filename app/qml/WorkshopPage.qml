@@ -32,7 +32,6 @@ Item {
         doSearch()
     }
     function shortSize(bytes) { return Bridge.formatSize(bytes) }
-    function openLink(url) { linkDialog.openWith(url) }
 
     // La primera búsqueda se hace al abrir la página, no al abrir NekoWall.
     onVisibleChanged: if (visible && !started) doSearch()
@@ -99,40 +98,46 @@ Item {
                 highlighted: true
                 onClicked: page.doSearch()
             }
-            Button {
-                text: "Pegar enlace…"
-                icon.name: "insert-link"
-                onClicked: linkDialog.openWith("")
-                ToolTip.visible: hovered
-                ToolTip.text: "Descargar un fondo animado desde un enlace (YouTube, Reddit, un vídeo directo…) eligiendo el formato"
-            }
         }
 
         Flow {
             Layout.fillWidth: true
             spacing: 8
-            FilterChip { text: "Populares"; checked: page.sorting === "popular"; onClicked: { page.sorting = "popular"; page.doSearch() } }
-            FilterChip { text: "Recientes"; checked: page.sorting === "recent"; onClicked: { page.sorting = "recent"; page.doSearch() } }
-            FilterChip { text: "Top del mes"; checked: page.sorting === "toplist"; onClicked: { page.sorting = "toplist"; page.doSearch() } }
-            FilterChip { text: "Aleatorio"; checked: page.sorting === "random"; onClicked: { page.sorting = "random"; page.doSearch() } }
-            Item { width: 16; height: 1 }
-            FilterChip {
-                text: "Anime"; autoExclusive: false; checked: page.catAnime
-                onClicked: { page.catAnime = checked; page.doSearch() }
+            Row {   // etiqueta + chips: el grupo salta de línea entero
+                spacing: 8
+                rightPadding: 14            // separación entre grupos
+                Label { text: "Orden"; height: 32; verticalAlignment: Text.AlignVCenter; opacity: 0.7; rightPadding: 2 }
+                FilterChip { text: "Populares"; checked: page.sorting === "popular"; onClicked: { page.sorting = "popular"; page.doSearch() } }
+                FilterChip { text: "Recientes"; checked: page.sorting === "recent"; onClicked: { page.sorting = "recent"; page.doSearch() } }
+                FilterChip { text: "Top del mes"; checked: page.sorting === "toplist"; onClicked: { page.sorting = "toplist"; page.doSearch() } }
+                FilterChip { text: "Aleatorio"; checked: page.sorting === "random"; onClicked: { page.sorting = "random"; page.doSearch() } }
             }
-            FilterChip {
-                text: "General"; autoExclusive: false; checked: page.catGeneral
-                onClicked: { page.catGeneral = checked; page.doSearch() }
+            Row {   // etiqueta + chips: el grupo salta de línea entero
+                spacing: 8
+                rightPadding: 14            // separación entre grupos
+                Label { text: "Categoría"; height: 32; verticalAlignment: Text.AlignVCenter; opacity: 0.7; rightPadding: 2 }
+                FilterChip {
+                    text: "Anime"; autoExclusive: false; checked: page.catAnime
+                    onClicked: { page.catAnime = checked; page.doSearch() }
+                }
+                FilterChip {
+                    text: "General"; autoExclusive: false; checked: page.catGeneral
+                    onClicked: { page.catGeneral = checked; page.doSearch() }
+                }
+                FilterChip {
+                    text: "Personas"; autoExclusive: false; checked: page.catPeople
+                    onClicked: { page.catPeople = checked; page.doSearch() }
+                }
             }
-            FilterChip {
-                text: "Personas"; autoExclusive: false; checked: page.catPeople
-                onClicked: { page.catPeople = checked; page.doSearch() }
-            }
-            Item { width: 16; height: 1 }
-            FilterChip {
-                text: "Para mi pantalla (" + Bridge.screenWidth + "×" + Bridge.screenHeight + " o más)"
-                autoExclusive: false; checked: page.forMyScreen
-                onClicked: { page.forMyScreen = checked; page.doSearch() }
+            Row {   // etiqueta + chips: el grupo salta de línea entero
+                spacing: 8
+                rightPadding: 14            // separación entre grupos
+                Label { text: "Tamaño"; height: 32; verticalAlignment: Text.AlignVCenter; opacity: 0.7; rightPadding: 2 }
+                FilterChip {
+                    text: "Para mi pantalla (" + Bridge.screenWidth + "×" + Bridge.screenHeight + " o más)"
+                    autoExclusive: false; checked: page.forMyScreen
+                    onClicked: { page.forMyScreen = checked; page.doSearch() }
+                }
             }
         }
 
@@ -441,5 +446,4 @@ Item {
         }
     }
 
-    LinkDialog { id: linkDialog }
 }

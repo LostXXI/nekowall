@@ -33,14 +33,14 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
   `~/.cache/nekowall/workshop` (máx. 200 MB) y si Wallhaven falla (502/503) se reintenta cada medio segundo.
   **Cada día a las 23:59** se borran las búsquedas y las miniaturas guardadas (si NekoWall estaba cerrado, al
   abrirlo). Las descargas no se tocan.
-- **Pegar enlace** (en Workshop): descarga un fondo desde un enlace (YouTube, Reddit, X, Vimeo, una página
+- **Descargar con enlace** (botón azul en la cabecera de la Biblioteca): descarga un fondo desde un enlace (YouTube, Reddit, X, Vimeo, una página
   con un vídeo incrustado o un enlace directo a un vídeo o imagen) con **yt-dlp**. La ventana tiene la vista
   previa fija a la izquierda (miniatura y, con ▶, el vídeo en baja calidad sin descargarlo; necesita
   `qt6-multimedia`) y a la derecha los formatos de menor a mayor, con el de tu pantalla ya marcado. Por cada
   altura se elige el formato más liviano de reproducir (H.264, luego VP9; AV1 solo si no hay otro). Se
   descarga sin audio a `nekowallpapers`. Si el sitio da una sola versión, NekoWall ofrece versiones más
   pequeñas convirtiendo el vídeo tras descargarlo. MoeWalls no se puede analizar (su botón de descarga usa un
-  código propio): descarga en su web y arrastra el archivo. También: `nekowall-gui --link=<enlace>`.
+  código propio): descarga en su web y arrastra el archivo. También: `nekowall-gui --link=<enlace>` abre esa ventana con el enlace ya analizado.
 - **Fondos oficiales de neko-void**: en neko-void, `/usr/share/backgrounds` (paquete `neko-backgrounds`) se
   vincula sola la primera vez. Si la quitas, no vuelve.
 - **Vídeos grandes**: al importar un vídeo mayor que tu pantalla (p. ej. 4K) ofrece crear una copia a tu
@@ -94,7 +94,7 @@ Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
-    ffmpeg6 glib mpv xwinwrap xprop xdotool xrandr qt6-multimedia yt-dlp
+    ffmpeg6 glib mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia yt-dlp
 ```
 
 (En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
@@ -157,7 +157,7 @@ Para quitarlo: borra ese archivo y la línea `include`.
 - **Selector rápido**: la versión Wayland (layer-shell), igual que en KDE.
 - *Probado en una máquina virtual con neko-void niri (niri 26.04, Noctalia 5.2.1), también con dos pantallas:
   imagen en una y vídeo en la otra, dos vídeos distintos, pausa por pantalla y el selector rápido abriéndose
-  en la pantalla activa. Workshop, Pegar enlace (con vista previa) y la descarga también funcionan.*
+  en la pantalla activa. Workshop, Descargar con enlace (con vista previa) y la descarga también funcionan.*
 
 ### Compilar (todos los escritorios)
 

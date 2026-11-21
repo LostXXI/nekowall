@@ -117,10 +117,11 @@ Item {
         Label {
             Layout.fillWidth: true
             text: tile.modelData.name
-            elide: Text.ElideRight
-            maximumLineCount: 2
-            wrapMode: Text.Wrap
+            elide: Text.ElideRight        // una sola línea: todas las tarjetas miden lo mismo
             font.pixelSize: 14
+            ToolTip.visible: nameHover.hovered && truncated
+            ToolTip.text: tile.modelData.name
+            HoverHandler { id: nameHover }
         }
         Label {
             Layout.fillWidth: true
@@ -129,20 +130,25 @@ Item {
             opacity: 0.7
             font.pixelSize: 12
         }
+        // Acciones: «Aplicar» a la izquierda; «Ajustar» y favorito a la derecha, todos del mismo alto.
         RowLayout {
-            spacing: 6
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            spacing: 4
             Button {
+                Layout.preferredWidth: Math.max(implicitWidth, 96)
                 text: tile.isCurrentWallpaper ? "Aplicado" : "Aplicar"
+                highlighted: !tile.isCurrentWallpaper && hover.hovered && enabled
                 enabled: !tile.isCurrentWallpaper && !tile.modelData.missing && !Bridge.busy
                 focusPolicy: Qt.NoFocus      // el teclado lo maneja la rejilla
                 onClicked: tile.applyRequested()
             }
+            Item { Layout.fillWidth: true }
             ToolButton {
                 // Abre la ventana «Ajustar» (vista previa, mover, escala, relleno).
                 visible: tile.modelData.kind === "static" && !tile.modelData.missing
-                icon.name: "transform-crop"
                 text: "Ajustar"
-                display: AbstractButton.TextBesideIcon
+                Layout.preferredHeight: 34
                 enabled: !Bridge.taskActive
                 focusPolicy: Qt.NoFocus
                 ToolTip.visible: hovered
@@ -153,6 +159,8 @@ Item {
             ToolButton {
                 text: tile.modelData.favorite ? "★" : "☆"
                 font.pixelSize: 18
+                Layout.preferredHeight: 34
+                Layout.preferredWidth: 34
                 focusPolicy: Qt.NoFocus
                 ToolTip.visible: hovered
                 ToolTip.text: tile.modelData.favorite ? "Quitar de favoritos (F)" : "Marcar como favorito (F)"

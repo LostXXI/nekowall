@@ -1,6 +1,8 @@
 # NekoWall
 
 Pon **imágenes y vídeos** como fondo de pantalla en **Void Linux** / neko-void, con **KDE Plasma**, **MATE** o **niri**.
+Trae un buscador de fondos (**Workshop**) y un **instalador de fondos con enlaces**: pegas un enlace (YouTube,
+Reddit…) y lo descarga en la calidad que elijas.
 
 ## Instalación paso a paso
 
@@ -35,6 +37,16 @@ Tarda unos minutos: instala lo que falte y compila el programa. Cuando termine, 
 menú de aplicaciones.
 
 > Si sale un error con **«unresolvable shlib»**, tu sistema necesita actualizarse: el instalador te lo ofrece, di que sí.
+
+**Opciones del instalador** (se pueden combinar, por ejemplo `./install.sh --yes --niri`):
+
+| Opción | Qué hace |
+|---|---|
+| `--yes` o `-y` | Responde «sí» a todo: instala sin hacer preguntas |
+| `--dry-run` | Muestra lo que haría, sin instalar ni cambiar nada (para mirar antes) |
+| `--deps-only` | Solo instala los paquetes que faltan, sin compilar NekoWall |
+| `--kde` / `--mate` / `--niri` | Elige el escritorio a mano (normalmente lo detecta solo) |
+| `--help` o `-h` | Muestra esta ayuda |
 
 ### Paso 4 · Solo KDE: cierra sesión y vuelve a entrar
 
@@ -103,7 +115,9 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
   fondos en ellas, la biblioteca se actualiza sola.
 - **Workshop**: busca y descarga fondos de [Wallhaven](https://wallhaven.cc) sin salir de NekoWall (solo
   contenido apto). Se guardan en `nekowallpapers` y aparecen solos en la biblioteca.
-  Con **Pegar enlace** bajas fondos animados de YouTube, Reddit y otros sitios, eligiendo la calidad.
+- **Instalador de fondos con enlaces** («Descargar con enlace», el botón azul de la Biblioteca): pega un
+  enlace de YouTube, Reddit, una página con vídeo o un archivo directo, mira la vista previa y elige la
+  calidad (de menor a mayor). Se descarga sin audio, listo para usar como fondo.
 - **Varias pantallas**: cada una puede tener su propio fondo (imagen o vídeo). El fondo se aplica en la
   pantalla donde está el ratón, o eliges otra (o todas) con el botón del selector o de la biblioteca.
 - **Ahorra batería**: pausa el vídeo de fondo cuando una ventana lo tapa o la batería está baja.
