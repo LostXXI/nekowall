@@ -16,6 +16,9 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QIcon>
+#include <QLocalServer>
+#include <QLocalSocket>
+#include <unistd.h>
 #include <QFileInfo>
 #ifdef HAVE_KWINDOWEFFECTS
 #include <KWindowEffects>
@@ -36,6 +39,34 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon::fromTheme(QStringLiteral("nekowall"), QIcon::fromTheme(QStringLiteral("preferences-desktop-wallpaper"))));
 
     const bool hud = app.arguments().contains(QStringLiteral("--hud"));
+
+    // Selector rápido de una sola instancia: si ya hay uno abierto, se le pide que se cierre y este
+    // proceso termina sin abrir otra ventana. Así, pulsar Meta+Alt+W muchas veces seguidas lo abre y lo
+    // cierra en vez de amontonar selectores hasta llenar la memoria.
+    QLocalServer *hudServer = nullptr;
+    if (hud) {
+        const QString name = QStringLiteral("nekowall-hud-%1").arg(getuid());
+        auto toggleExisting = [&name] {
+            QLocalSocket s;
+            s.connectToServer(name);
+            if (!s.waitForConnected(200))
+                return false;
+            s.write("cerrar\n");
+            s.waitForBytesWritten(200);
+            return true;
+        };
+        if (toggleExisting())
+            return 0;
+        hudServer = new QLocalServer(&app);
+        hudServer->setSocketOptions(QLocalServer::UserAccessOption);
+        if (!hudServer->listen(name)) {
+            // Otro selector acaba de abrirse a la vez (pulsaciones muy seguidas) o quedó un socket viejo.
+            if (toggleExisting())
+                return 0;
+            QLocalServer::removeServer(name);
+            hudServer->listen(name);
+        }
+    }
     // Estilo Breeze de KDE para los controles, salvo que el usuario elija otro.
     // Estilo de los controles: Breeze en KDE si su módulo QML está instalado (kf6-qqc2-desktop-style);
     // en cualquier otro caso Fusion, que viene con Qt. Sin esta comprobación, fuera de KDE la ventana no
@@ -75,6 +106,16 @@ int main(int argc, char *argv[])
         root = layerShell ? QStringLiteral("HudWayland") : QStringLiteral("Hud");
     }
     engine.loadFromModule("NekoWall", root);
+
+    // Otra pulsación del atajo mientras el selector está abierto: se cierra (con su animación).
+    if (hudServer) {
+        QObject::connect(hudServer, &QLocalServer::newConnection, &app, [hudServer, &engine] {
+            while (QLocalSocket *c = hudServer->nextPendingConnection())
+                QObject::connect(c, &QLocalSocket::disconnected, c, &QObject::deleteLater);
+            if (QObject *w = engine.rootObjects().value(0))
+                QMetaObject::invokeMethod(w, "close");
+        });
+    }
 
 #ifdef HAVE_KWINDOWEFFECTS
     // HUD de cristal: KWin desenfoca lo que hay detrás de la ventana transparente.

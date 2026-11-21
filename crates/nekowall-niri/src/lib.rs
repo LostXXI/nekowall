@@ -514,6 +514,7 @@ pub fn spawn_watcher() {
 /// queda ningún mpvpaper de NekoWall.
 pub fn run_watcher() -> Result<(), String> {
     let mut paused: BTreeMap<String, bool> = BTreeMap::new();
+    let mut ticks: u32 = 0;
     loop {
         let st = read_state();
         let videos: Vec<String> = st
@@ -542,10 +543,13 @@ pub fn run_watcher() -> Result<(), String> {
                           w["is_focused"] == true))
                 .collect()).unwrap_or_default();
             let want = should_pause(&settings, &wins, ow, oh, low);
-            if paused.get(m) != Some(&want) && mpv_pause(m, want) {
+            // Cada ~5 s se reenvía aunque no haya cambiado: si el vídeo quedó en pausa (o en marcha) por
+            // otra causa, se corrige solo.
+            if (paused.get(m) != Some(&want) || ticks % 6 == 0) && mpv_pause(m, want) {
                 paused.insert(m.clone(), want);
             }
         }
+        ticks = ticks.wrapping_add(1);
         std::thread::sleep(std::time::Duration::from_millis(800));
     }
 }

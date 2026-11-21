@@ -24,7 +24,20 @@ Window {
     // La pantalla donde está la ventana es el destino por defecto («donde está el ratón»).
     onScreenChanged: Bridge.hostScreen = screen ? screen.name : ""
 
-    Component.onCompleted: {
+    // La ventana se muestra cuando la lista de fondos ya está (o a los 350 ms como mucho): así aparece
+    // completa de una vez, en vez de un velo oscuro vacío y las tarjetas después.
+    property bool revealed: false
+    Timer { id: revealTimer; interval: 350; running: true; onTriggered: root.reveal() }
+    Component.onCompleted: if (Bridge.loaded) Qt.callLater(root.reveal)
+    function reveal() {
+        if (revealed) return
+        revealed = true
+        revealTimer.stop()
+        root.showWindow()
+        if (root.reduced) content.opacity = 1
+        else fadeIn.start()
+    }
+    function showWindow() {
         if (Bridge.wayland) {
             show()   // con layer-shell, KWin la pone en la pantalla activa (ver HudWayland.qml)
         } else {
@@ -135,7 +148,7 @@ Window {
     function close() {
         if (closing) return
         closing = true
-        if (reduced) Qt.quit()
+        if (reduced || !revealed) Qt.quit()
         else fadeOut.start()
     }
 
@@ -143,6 +156,7 @@ Window {
         target: Bridge
         function onWallpapersAboutToChange() { root.restoring = true }
         function onWallpapersChanged() {
+            Qt.callLater(root.reveal)
             Qt.callLater(() => {
                 if (root.videoId !== "" || root.imageId !== "") {
                     root.place(hView, root.videos, root.videoId)
@@ -175,16 +189,21 @@ Window {
         opacity: 0
         scale: root.reduced ? 1 : 0.98
         focus: true
-        Component.onCompleted: { if (root.reduced) opacity = 1; else fadeIn.start() }
 
+        // Entrada: todo aparece con un leve acercamiento y los carruseles suben un poco hasta su sitio.
+        property real slide: root.reduced ? 0 : 28
         ParallelAnimation {
             id: fadeIn
-            NumberAnimation { target: content; property: "opacity"; to: 1; duration: 160; easing.type: Easing.OutCubic }
-            NumberAnimation { target: content; property: "scale"; to: 1; duration: 200; easing.type: Easing.OutCubic }
+            NumberAnimation { target: content; property: "opacity"; to: 1; duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { target: content; property: "scale"; from: 0.965; to: 1; duration: 280; easing.type: Easing.OutCubic }
+            NumberAnimation { target: content; property: "slide"; from: 28; to: 0; duration: 340; easing.type: Easing.OutCubic }
         }
-        NumberAnimation {
+        // Salida: lo mismo al revés, más rápido.
+        ParallelAnimation {
             id: fadeOut
-            target: content; property: "opacity"; to: 0; duration: 120
+            NumberAnimation { target: content; property: "opacity"; to: 0; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { target: content; property: "scale"; to: 0.975; duration: 150; easing.type: Easing.InCubic }
+            NumberAnimation { target: content; property: "slide"; to: 16; duration: 150; easing.type: Easing.InCubic }
             onFinished: Qt.quit()
         }
 
@@ -254,6 +273,7 @@ Window {
         // ── Carrusel vertical: imágenes estáticas ──────────────────────────────
         PathView {
             id: vView
+            transform: Translate { y: content.slide }
             readonly property bool isActive: !root.videoActive
             readonly property real cardH: Math.round(root.height * 0.26)
             readonly property real cardW: Math.round(cardH * 1.5)
@@ -315,6 +335,7 @@ Window {
         // ── Carrusel horizontal: vídeos ────────────────────────────────────────
         PathView {
             id: hView
+            transform: Translate { y: content.slide * 1.4 }
             readonly property bool isActive: root.videoActive
             readonly property real cardH: Math.round(root.height * 0.34)
             readonly property real cardW: Math.round(cardH * 1.08)

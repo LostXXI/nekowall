@@ -797,7 +797,9 @@ pub fn run_daemon(legacy: Option<&Path>) -> Result<(), String> {
             };
             for (m, p) in players.iter_mut() {
                 let want = battery || should_pause(&settings, &wins, active.as_deref(), &p.geom, multi);
-                if want != p.paused {
+                // Cada 5 s se vuelve a enviar aunque no haya cambiado: si el vídeo quedó en pausa (o en
+                // marcha) por otra causa, se corrige solo. Enviar el mismo estado no tiene efecto.
+                if want != p.paused || tick % 25 == 0 {
                     mpv_pause(m, want);
                     p.paused = want;
                 }
