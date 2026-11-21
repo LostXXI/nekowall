@@ -604,8 +604,12 @@ impl Player {
         let child = Command::new("xwinwrap")
             .args(["-g", &format!("{}x{}+{}+{}", m.width, m.height, m.x, m.y)])
             .args(["-ni", "-fdt", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
-            .args(["mpv", "-wid", "WID", "--loop", "--no-audio", "--no-osc", "--no-input-default-bindings",
-                   "--hwdec=auto-safe", "--panscan=1.0", "--really-quiet", "--no-terminal"])
+            // --no-config y --load-scripts=no: el fondo ignora la configuración personal de mpv del
+            // usuario. Sin esto, un script de controles (ModernZ, uosc…) instalado en ~/.config/mpv/scripts
+            // dibujaba su barra de reproducción encima del fondo (visto en el equipo de un amigo de Lost).
+            .args(["mpv", "-wid", "WID", "--no-config", "--load-scripts=no", "--loop", "--no-audio", "--no-osc",
+                   "--osd-level=0", "--no-osd-bar", "--no-input-default-bindings", "--no-input-cursor",
+                   "--cursor-autohide=always", "--hwdec=auto-safe", "--panscan=1.0", "--really-quiet", "--no-terminal"])
             .arg(format!("--input-ipc-server={}", sock.display()))
             .arg(video)
             .stdin(Stdio::null())

@@ -240,7 +240,10 @@ impl NiriBackend {
             let _ = std::fs::create_dir_all(d);
         }
         let opts = format!(
-            "no-audio loop-file=inf hwdec=auto panscan=1.0 input-ipc-server={}",
+            // Sin la configuración ni los scripts personales de mpv (un script de controles dibujaría su
+            // barra encima del fondo) y sin mensajes en pantalla.
+            "config=no load-scripts=no osc=no osd-level=0 osd-bar=no input-cursor=no input-default-bindings=no \
+             no-audio loop-file=inf hwdec=auto panscan=1.0 input-ipc-server={}",
             sock.display()
         );
         let child = Command::new("mpvpaper")
