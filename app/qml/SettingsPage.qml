@@ -70,8 +70,9 @@ ScrollView {
                 onClicked: Bridge.backend === "niri" ? Bridge.registerNiriShortcut() : Bridge.registerMateShortcut()
             }
             Button {
-                text: Bridge.backend === "mate" ? "Cambiar en Atajos de teclado…"
-                    : Bridge.backend === "niri" ? "Abrir nekowall.kdl…" : "Cambiar en Ajustes del sistema…"
+                // En niri no hay ventana de atajos (se escriben en un archivo): el botón no aparece.
+                visible: Bridge.backend !== "niri"
+                text: Bridge.backend === "mate" ? "Cambiar en Atajos de teclado…" : "Cambiar en Ajustes del sistema…"
                 icon.name: "configure-shortcuts"
                 onClicked: Bridge.openShortcutSettings()
             }

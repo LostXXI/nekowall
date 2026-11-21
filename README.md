@@ -27,7 +27,7 @@ cd nekowall
 ### Paso 3 · Ejecuta el instalador
 
 ```bash
-./instalar.sh
+./install.sh
 ```
 
 Responde **S** (sí) a todas las preguntas y escribe tu contraseña cuando la pida.
@@ -79,7 +79,7 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 
 ## Actualizar o desinstalar
 
-**Actualizar:** dentro de la carpeta `nekowall`, ejecuta `git pull` y después `./instalar.sh`.
+**Actualizar:** dentro de la carpeta `nekowall`, ejecuta `git pull` y después `./install.sh`.
 
 **Desinstalar:**
 

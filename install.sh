@@ -1,12 +1,12 @@
 #!/bin/sh
-# instalar.sh — instala las dependencias de NekoWall en Void Linux / neko-void y, si quieres,
+# install.sh — instala las dependencias de NekoWall en Void Linux / neko-void y, si quieres,
 # compila e instala el programa para tu usuario.
 #
-#   ./instalar.sh                 detecta el escritorio y pregunta en cada paso
-#   ./instalar.sh --kde | --mate | --niri  fuerza el escritorio
-#   ./instalar.sh --solo-dependencias
-#   ./instalar.sh --si            responde «sí» a todo (sin preguntas)
-#   ./instalar.sh --simular       muestra lo que haría, sin instalar ni cambiar nada
+#   ./install.sh                 detecta el escritorio y pregunta en cada paso
+#   ./install.sh --kde | --mate | --niri  fuerza el escritorio
+#   ./install.sh --solo-dependencias
+#   ./install.sh --si            responde «sí» a todo (sin preguntas)
+#   ./install.sh --simular       muestra lo que haría, sin instalar ni cambiar nada
 #
 # No lo ejecutes como root: compila con tu usuario y solo usa sudo/doas para xbps-install.
 

@@ -309,6 +309,10 @@ pub fn write_niri_config(cli: &Path, gui: Option<&Path>) -> Result<PathBuf, Wall
          // `include \"nekowall.kdl\"` de config.kdl.\n\n",
     );
     kdl += &format!("spawn-at-startup \"{}\" \"_niri-restore\"\n", cli.display());
+    // La ventana principal se abre maximizada (ancho completo, fija en su sitio; la barra de Noctalia
+    // sigue visible). Solo esa: el selector rápido es una capa aparte y los diálogos de archivos son
+    // del portal.
+    kdl += "\nwindow-rule {\n    match app-id=\"^nekowall$\" title=\"^NekoWall$\"\n    open-maximized true\n}\n";
     if let Some(g) = gui {
         kdl += &format!(
             "\nbinds {{\n    Mod+Alt+W hotkey-overlay-title=\"NekoWall: selector rápido\" {{ spawn \"{}\" \"--hud\"; }}\n}}\n",
@@ -613,6 +617,7 @@ mod tests {
         let kdl = std::fs::read_to_string(f).unwrap();
         assert!(kdl.contains("spawn-at-startup \"/usr/bin/nekowall\" \"_niri-restore\""));
         assert!(kdl.contains("Mod+Alt+W"));
+        assert!(kdl.contains("open-maximized true"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

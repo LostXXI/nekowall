@@ -1,6 +1,6 @@
 # NekoWall · Detalles
 
-Todo lo que no hace falta para instalar NekoWall con `./instalar.sh`: funciones, instalación manual,
+Todo lo que no hace falta para instalar NekoWall con `./install.sh`: funciones, instalación manual,
 uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../README.md).
 
 ## Funciones
@@ -55,7 +55,7 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
 - **CLI** (`nekowall`) para usar todo desde la terminal o desde scripts.
 - Cerrado no ocupa memoria: no deja procesos en segundo plano.
 
-## Opciones de instalar.sh
+## Opciones de install.sh
 
 `--simular` (muestra lo que haría sin tocar nada) · `--kde` / `--mate` (forzar escritorio) ·
 `--solo-dependencias` · `--si` (sin preguntas). Usa `sudo` o `doas` solo para instalar paquetes; no lo
@@ -63,7 +63,7 @@ ejecutes como root.
 
 ## Instalación manual
 
-Solo si no quieres usar `./instalar.sh` o no estás en Void (cambia `xbps-install` por el instalador de tu
+Solo si no quieres usar `./install.sh` o no estás en Void (cambia `xbps-install` por el instalador de tu
 distribución; los nombres de paquetes pueden variar).
 
 ### Instalar en KDE Plasma
@@ -136,8 +136,8 @@ Igual que en los otros escritorios (abajo). Después registra el atajo y el arra
 ~/.local/bin/nekowall niri-shortcut --gui ~/.local/bin/nekowall-gui
 ```
 
-Eso crea `~/.config/niri/nekowall.kdl` (atajo **Meta+Alt+W** y `spawn-at-startup` que restaura el vídeo de
-fondo al iniciar sesión) y añade `include "nekowall.kdl"` al final de `config.kdl`. niri lo aplica al momento.
+Eso crea `~/.config/niri/nekowall.kdl` (atajo **Meta+Alt+W**, `spawn-at-startup` que restaura el vídeo de
+fondo al iniciar sesión y una regla para que la ventana principal se abra maximizada) y añade `include "nekowall.kdl"` al final de `config.kdl`. niri lo aplica al momento.
 Para quitarlo: borra ese archivo y la línea `include`.
 
 #### Cómo funciona en niri

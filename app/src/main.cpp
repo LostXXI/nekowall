@@ -16,6 +16,8 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QIcon>
+#include <QPalette>
+#include <QStyleHints>
 #include <QLocalServer>
 #include <QLockFile>
 #include <QTimer>
@@ -44,6 +46,7 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon::fromTheme(QStringLiteral("nekowall"), QIcon::fromTheme(QStringLiteral("preferences-desktop-wallpaper"))));
 
     const bool hud = app.arguments().contains(QStringLiteral("--hud"));
+    bool darkFallback = false;   // paleta oscura propia (fuera de KDE, si el sistema no da una oscura)
 
     // Selector rápido de una sola instancia: si ya hay uno abierto, se le pide que se cierre y este
     // proceso termina sin abrir otra ventana. Así, pulsar Meta+Alt+W muchas veces seguidas lo abre y lo
@@ -104,6 +107,42 @@ int main(int argc, char *argv[])
                     breeze = true;
         }
         QQuickStyle::setStyle(breeze ? QStringLiteral("org.kde.desktop") : QStringLiteral("Fusion"));
+        // Fuera de KDE (Fusion): modo oscuro salvo que el sistema pida claro. En niri, por ejemplo, Qt no
+        // sabe el modo del sistema y caía en la paleta clara (todo blanco). Si el escritorio ya da una
+        // paleta oscura (MATE con tema oscuro), se respeta.
+        if (!breeze && qEnvironmentVariableIsEmpty("NEKOWALL_LIGHT")) {
+            const bool lightAsked = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light;
+            const bool alreadyDark = QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
+            if (!lightAsked && !alreadyDark) {
+                darkFallback = true;
+                const QColor win(0x1c, 0x20, 0x26), base(0x14, 0x17, 0x1c), btn(0x26, 0x2b, 0x33);
+                const QColor text(0xe6, 0xe9, 0xed), dim(0x6b, 0x72, 0x7c), accent(0x39, 0xc5, 0xbb);
+                QPalette p;
+                p.setColor(QPalette::Window, win);
+                p.setColor(QPalette::WindowText, text);
+                p.setColor(QPalette::Base, base);
+                p.setColor(QPalette::AlternateBase, win);
+                p.setColor(QPalette::ToolTipBase, btn);
+                p.setColor(QPalette::ToolTipText, text);
+                p.setColor(QPalette::PlaceholderText, QColor(0x8a, 0x91, 0x9a));
+                p.setColor(QPalette::Text, text);
+                p.setColor(QPalette::Button, btn);
+                p.setColor(QPalette::ButtonText, text);
+                p.setColor(QPalette::BrightText, QColor(0xff, 0x8a, 0x80));
+                p.setColor(QPalette::Link, accent);
+                p.setColor(QPalette::Highlight, accent);
+                p.setColor(QPalette::HighlightedText, QColor(0x0b, 0x0f, 0x14));
+                p.setColor(QPalette::Light, QColor(0x34, 0x3a, 0x44));
+                p.setColor(QPalette::Midlight, QColor(0x2c, 0x32, 0x3b));
+                p.setColor(QPalette::Mid, QColor(0x22, 0x27, 0x2e));
+                p.setColor(QPalette::Dark, QColor(0x10, 0x12, 0x16));
+                p.setColor(QPalette::Shadow, Qt::black);
+                for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+                    p.setColor(QPalette::Disabled, role, dim);
+                p.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x3a, 0x40, 0x48));
+                QApplication::setPalette(p);   // QApplication: si no, su estilo la pisa al cargarse
+            }
+        }
     }
 
     Bridge bridge;
@@ -113,6 +152,8 @@ int main(int argc, char *argv[])
     engine.setNetworkAccessManagerFactory(&netFactory);
     engine.rootContext()->setContextProperty(QStringLiteral("Bridge"), &bridge);
     engine.rootContext()->setContextProperty(QStringLiteral("Workshop"), &workshop);
+    // Los controles de Qt Quick toman la paleta de la ventana, no la de la aplicación: Main.qml la aplica.
+    engine.rootContext()->setContextProperty(QStringLiteral("nekoDark"), darkFallback);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);

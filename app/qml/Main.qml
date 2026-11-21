@@ -12,6 +12,28 @@ ApplicationWindow {
     minimumHeight: 480
     visible: true
     title: "NekoWall"
+    // Modo oscuro fuera de KDE cuando el sistema no da una paleta oscura (p. ej. niri): ver main.cpp.
+    palette.window: nekoDark ? "#1c2026" : undefined
+    palette.windowText: nekoDark ? "#e6e9ed" : undefined
+    palette.base: nekoDark ? "#14171c" : undefined
+    palette.alternateBase: nekoDark ? "#1c2026" : undefined
+    palette.text: nekoDark ? "#e6e9ed" : undefined
+    palette.placeholderText: nekoDark ? "#8a919a" : undefined
+    palette.button: nekoDark ? "#262b33" : undefined
+    palette.buttonText: nekoDark ? "#e6e9ed" : undefined
+    palette.toolTipBase: nekoDark ? "#262b33" : undefined
+    palette.toolTipText: nekoDark ? "#e6e9ed" : undefined
+    palette.highlight: nekoDark ? "#39c5bb" : undefined
+    palette.highlightedText: nekoDark ? "#0b0f14" : undefined
+    palette.link: nekoDark ? "#39c5bb" : undefined
+    palette.light: nekoDark ? "#343a44" : undefined
+    palette.midlight: nekoDark ? "#2c323b" : undefined
+    palette.mid: nekoDark ? "#22272e" : undefined
+    palette.dark: nekoDark ? "#101216" : undefined
+    palette.shadow: nekoDark ? "#000000" : undefined
+    palette.disabled.windowText: nekoDark ? "#6b727c" : undefined
+    palette.disabled.text: nekoDark ? "#6b727c" : undefined
+    palette.disabled.buttonText: nekoDark ? "#6b727c" : undefined
     // La pantalla de la ventana es el destino por defecto de «Aplicar» («donde está el ratón»).
     onScreenChanged: Bridge.hostScreen = screen ? screen.name : ""
     Component.onCompleted: Bridge.hostScreen = screen ? screen.name : ""
