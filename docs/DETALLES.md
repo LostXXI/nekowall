@@ -57,8 +57,9 @@ uso desde la terminal y notas de desarrollo. Para instalar, mira el [README](../
 
 ## Opciones de install.sh
 
-`--simular` (muestra lo que haría sin tocar nada) · `--kde` / `--mate` (forzar escritorio) ·
-`--solo-dependencias` · `--si` (sin preguntas). Usa `sudo` o `doas` solo para instalar paquetes; no lo
+`--dry-run` (muestra lo que haría sin tocar nada) · `--kde` / `--mate` / `--niri` (forzar escritorio) ·
+`--deps-only` (solo dependencias) · `--yes` o `-y` (sin preguntas) · `--help`. Los nombres en español de
+versiones anteriores (`--simular`, `--solo-dependencias`, `--si`) siguen funcionando. Usa `sudo` o `doas` solo para instalar paquetes; no lo
 ejecutes como root.
 
 ## Instalación manual

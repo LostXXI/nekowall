@@ -4,9 +4,10 @@
 #
 #   ./install.sh                 detecta el escritorio y pregunta en cada paso
 #   ./install.sh --kde | --mate | --niri  fuerza el escritorio
-#   ./install.sh --solo-dependencias
-#   ./install.sh --si            responde «sí» a todo (sin preguntas)
-#   ./install.sh --simular       muestra lo que haría, sin instalar ni cambiar nada
+#   ./install.sh --deps-only     solo instala las dependencias
+#   ./install.sh --yes  (-y)     responde «sí» a todo (sin preguntas)
+#   ./install.sh --dry-run       muestra lo que haría, sin instalar ni cambiar nada
+#   ./install.sh --help  (-h)    muestra esta ayuda
 #
 # No lo ejecutes como root: compila con tu usuario y solo usa sudo/doas para xbps-install.
 
@@ -30,11 +31,12 @@ for a in "$@"; do
         --kde) ESCRITORIO=kde ;;
         --mate) ESCRITORIO=mate ;;
         --niri) ESCRITORIO=niri ;;
-        --solo-dependencias) SOLO_DEPS=1 ;;
-        --si|--sí|-y) SI=1 ;;
-        --simular) SIMULAR=1 ;;
-        -h|--help|--ayuda) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "Opción desconocida: $a (prueba --ayuda)" >&2; exit 1 ;;
+        # (los nombres en español siguen funcionando, por compatibilidad)
+        --deps-only|--solo-dependencias) SOLO_DEPS=1 ;;
+        --yes|-y|--si|--sí) SI=1 ;;
+        --dry-run|--simular) SIMULAR=1 ;;
+        -h|--help|--ayuda) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Opción desconocida: $a (prueba --help)" >&2; exit 1 ;;
     esac
 done
 
@@ -44,7 +46,7 @@ paso()  { printf "${V}==>${N} %s\n" "$*"; }
 aviso() { printf "${A}aviso:${N} %s\n" "$*"; }
 error() { printf "${R}error:${N} %s\n" "$*" >&2; exit 1; }
 
-# Ejecuta un comando, o solo lo muestra con --simular.
+# Ejecuta un comando, o solo lo muestra con --dry-run.
 hacer() {
     if [ "$SIMULAR" = 1 ]; then printf '   [simulado] %s\n' "$*"; else "$@"; fi
 }
