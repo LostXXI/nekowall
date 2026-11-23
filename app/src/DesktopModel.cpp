@@ -640,11 +640,89 @@ void DesktopModel::reload()
 
 // ── Posiciones (desktop-items-0.conf, el mismo archivo que pcmanfm-qt) ──────
 
+// pcmanfm-qt guarda las posiciones en un std::unordered_map<std::string, QPoint> y resuelve los choques
+// (dos iconos en la misma celda, p. ej. tras cambiar de resolución) en el orden en que lo recorre. Ese orden
+// es determinista en libstdc++: hash de std::string (_Hash_bytes, MurmurHash de 64 bits) y política de
+// cubetas primas. Se reproduce aquí para colocar los iconos exactamente igual.
+static quint64 stdHashBytes(const QByteArray &b)
+{
+    const quint64 mul = (quint64(0xc6a4a793u) << 32) + 0x5bd1e995u;
+    auto shiftMix = [](quint64 v) { return v ^ (v >> 47); };
+    const qsizetype len = b.size(), aligned = len & ~qsizetype(7);
+    quint64 h = 0xc70f6907u ^ (quint64(len) * mul);
+    for (qsizetype i = 0; i < aligned; i += 8) {
+        quint64 v = 0;
+        for (int k = 7; k >= 0; --k)
+            v = (v << 8) | quint8(b.at(i + k));
+        h ^= shiftMix(v * mul) * mul;
+        h *= mul;
+    }
+    if (len & 7) {
+        quint64 v = 0;
+        for (qsizetype k = len - 1; k >= aligned; --k)
+            v = (v << 8) | quint8(b.at(k));
+        h ^= v;
+        h *= mul;
+    }
+    h = shiftMix(h) * mul;
+    return shiftMix(h);
+}
+
+static QStringList unorderedMapOrder(const QStringList &inserted)
+{
+    static const int fast[] = {2, 2, 2, 3, 5, 5, 7, 7, 11, 11, 11, 11, 13, 13};
+    static const int primes[] = {13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 103, 109,
+                                 113, 127, 137, 139, 149, 157, 167, 179, 193, 199, 211, 227, 241, 257, 277, 293, 313,
+                                 337, 359, 383, 409, 439, 467, 503, 541, 577, 619, 661, 709, 761, 823, 887, 953, 1031,
+                                 1109, 1193, 1289, 1381, 1493, 1613, 1741, 1879, 2029, 2179, 2357, 2549, 2753, 2971};
+    quint64 buckets = 1, nextResize = 0;
+    QList<QPair<QString, quint64>> list;           // recorrido, con su hash
+    auto nextBkt = [&](quint64 n) -> quint64 {
+        if (n < 14) { nextResize = quint64(fast[n]); return quint64(fast[n]); }
+        for (int p : primes)
+            if (quint64(p) >= n) { nextResize = quint64(p); return quint64(p); }
+        nextResize = n;
+        return n;
+    };
+    auto insertInto = [](QList<QPair<QString, quint64>> &l, const QPair<QString, quint64> &e, quint64 n) {
+        for (int i = 0; i < l.size(); ++i)
+            if (l.at(i).second % n == e.second % n) {    // cubeta ocupada: al principio de su tramo
+                l.insert(i, e);
+                return;
+            }
+        l.prepend(e);                                   // cubeta vacía: al principio de todo
+    };
+    for (const QString &name : inserted) {
+        const quint64 h = stdHashBytes(name.toUtf8());
+        const quint64 nElt = quint64(list.size());
+        if (nElt + 1 > nextResize) {
+            const quint64 minB = std::max<quint64>(nElt + 1, nextResize ? 0 : 11);
+            if (minB >= buckets) {
+                buckets = nextBkt(std::max<quint64>(minB + 1, buckets * 2));
+                // _M_rehash_aux: se recorre la lista vieja y cada nodo se mete delante del primero de su
+                // cubeta (o al principio de todo si la cubeta está vacía), igual que al insertar.
+                QList<QPair<QString, quint64>> rebuilt;
+                for (const auto &e : std::as_const(list))
+                    insertInto(rebuilt, e, buckets);
+                list = rebuilt;
+            } else {
+                nextResize = buckets;
+            }
+        }
+        insertInto(list, {name, h}, buckets);
+    }
+    QStringList out;
+    for (const auto &e : std::as_const(list))
+        out << e.first;
+    return out;
+}
+
 void DesktopModel::loadPositions()
 {
     m_customStore.clear();
     QSettings file(m_positionsFile, QSettings::IniFormat);
     const QStringList names = file.childGroups();
+    m_fileOrder = names;
     for (const QString &name : names) {
         file.beginGroup(name);
         m_customStore.insert(name, file.value(QStringLiteral("pos")).toPoint());
@@ -738,8 +816,19 @@ void DesktopModel::relayout()
 
     QHash<QString, QPoint> custom;
     QList<QPoint> used;
-    QStringList names = m_customStore.keys();
-    std::sort(names.begin(), names.end());
+    // Mismo orden que el mapa de pcmanfm-qt (los nuevos de esta sesión, al final y por nombre).
+    QStringList inserted;
+    for (const QString &n : std::as_const(m_fileOrder))
+        if (m_customStore.contains(n))
+            inserted << n;
+    QStringList extra;
+    for (auto it = m_customStore.cbegin(); it != m_customStore.cend(); ++it)
+        if (!m_fileOrder.contains(it.key()))
+            extra << it.key();
+    std::sort(extra.begin(), extra.end());
+    const QStringList names = unorderedMapOrder(inserted + extra);
+    if (qEnvironmentVariableIsSet("NEKOWALL_DESKTOP_DEBUG"))
+        std::fprintf(stderr, "orden de posiciones (como pcmanfm-qt): %s\n", qPrintable(names.join(QStringLiteral(" | "))));
     for (const QString &name : std::as_const(names)) {
         if (!QFileInfo::exists(m_folder + QLatin1Char('/') + name))
             continue;

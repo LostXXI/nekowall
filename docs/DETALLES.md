@@ -196,7 +196,10 @@ a mano, por ejemplo en sway: `bindsym Mod4+Mod1+w exec ~/.local/bin/nekowall-gui
     miniaturas, accesos Inicio/Papelera/Equipo/Red (la Papelera se actualiza: vacía / N elementos).
   - `desktop-items-<pantalla>.conf`: la posición de cada icono fijado. Un escritorio por pantalla, como
     pcmanfm-qt en Wayland. La rejilla se calcula igual (13 caracteres de ancho × 3 líneas, `removeBottomGap`,
-    `alignToGrid`), así que los iconos quedan en el mismo sitio (comprobado lado a lado en la VM).
+    `alignToGrid`), así que los iconos quedan en el mismo sitio (comprobado lado a lado en la VM, a 1440×900
+    y 1920×1080). Si dos iconos caen en la misma celda (posiciones guardadas a otra resolución), pcmanfm-qt
+    los reparte en el orden de su `std::unordered_map`: NekoWall reproduce ese orden (hash de libstdc++ y sus
+    cubetas primas; comprobado contra el mapa real de C++ con 3 a 700 nombres).
   - Ratón: clic selecciona, doble clic abre (o un clic con «clic simple»), Ctrl/Mayús, recuadro de selección,
     arrastrar para recolocar (queda fijo y se guarda), soltar sobre una carpeta (mueve) o la Papelera,
     soltar archivos desde otro programa (mueve si es el mismo disco, copia si no; se leen `text/uri-list` y

@@ -204,6 +204,7 @@ private:
     QSize m_grid{80, 80};
     QSize m_margins{3, 1};
     QRect m_workArea;
+    QStringList m_fileOrder;                // orden de desktop-items-*.conf al cargarlo (como lo inserta pcmanfm-qt)
     QHash<QString, QPoint> m_customStore;   // posiciones fijas (como customPosStorage_ de pcmanfm-qt)
     QHash<QString, QPoint> m_pending;       // archivos que van a aparecer en una posición (soltar/pegar)
     QList<bool> m_rubberBase;
