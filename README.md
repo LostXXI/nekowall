@@ -1,6 +1,7 @@
 # NekoWall
 
 Pon **imágenes y vídeos** como fondo de pantalla en **Void Linux** / neko-void, con **KDE Plasma**, **MATE** o **niri**.
+También fuera de neko-void: **Arch / Artix** con **Wayfire**, sway, labwc u otro compositor wlroots.
 Trae un buscador de fondos (**Workshop**) y un **instalador de fondos con enlaces**: pegas un enlace (YouTube,
 Reddit…) y lo descarga en la calidad que elijas.
 
@@ -14,7 +15,7 @@ Abre una terminal y escribe:
 echo $XDG_CURRENT_DESKTOP
 ```
 
-- Si sale **KDE**, **MATE** o **niri** → sigue al paso 2.
+- Si sale **KDE**, **MATE**, **niri**, **wayfire**, **sway**, **labwc** o **Hyprland** → sigue al paso 2.
 - Si sale otra cosa (XFCE, LXQt, i3…) → todavía no es compatible, lo siento.
 
 ### Paso 2 · Descarga NekoWall
@@ -45,7 +46,7 @@ menú de aplicaciones.
 | `--yes` o `-y` | Responde «sí» a todo: instala sin hacer preguntas |
 | `--dry-run` | Muestra lo que haría, sin instalar ni cambiar nada (para mirar antes) |
 | `--deps-only` | Solo instala los paquetes que faltan, sin compilar NekoWall |
-| `--kde` / `--mate` / `--niri` | Elige el escritorio a mano (normalmente lo detecta solo) |
+| `--kde` / `--mate` / `--niri` / `--wlroots` | Elige el escritorio a mano (normalmente lo detecta solo; `--wlroots` = Wayfire, sway, labwc…) |
 | `--help` o `-h` | Muestra esta ayuda |
 
 ### Paso 4 · Solo KDE: cierra sesión y vuelve a entrar
@@ -128,3 +129,9 @@ fondos en dos carruseles: vídeos en horizontal e imágenes en vertical.
 
 Está hecho en Rust (el núcleo) y Qt/QML (la interfaz). Instalación manual, uso desde la terminal y detalles
 técnicos: [docs/DETALLES.md](docs/DETALLES.md).
+
+## Licencia
+
+© 2026 **Lost (LostXXI)**. NekoWall usa la licencia **PolyForm Noncommercial 1.0.0** ([`LICENSE`](LICENSE)):
+puedes usarlo, modificarlo y compartirlo libremente **sin fines comerciales**. Venderlo o usarlo para ganar
+dinero requiere permiso del autor.

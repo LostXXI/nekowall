@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 //! Backend KDE Plasma (Wayland).
 //!
 //! Estáticos: `plasma-apply-wallpaperimage` (plasma-workspace). Validado en Plasma 6.7.5.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 #pragma once
 // Puente entre QML y el núcleo Rust. Todo pasa por la CLI `nekowall` (salida --json),
 // siempre con QProcess asíncrono: la interfaz nunca espera a Plasma ni a ffmpeg.
@@ -120,6 +122,7 @@ public:
     // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
     Q_INVOKABLE void registerMateShortcut();
     Q_INVOKABLE void registerNiriShortcut();   // Meta+Alt+W en ~/.config/niri/nekowall.kdl
+    Q_INVOKABLE void registerWlrShortcut();    // Wayfire: Meta+Alt+W en wayfire.ini; otros: arranque
     Q_INVOKABLE void revealInFolder(const QString &path);
     Q_INVOKABLE void openDefaultFolder();
 

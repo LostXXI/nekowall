@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Selector rápido (HUD cinemático) con dos carruseles en cruz que comparten el centro:
 //   · vídeos en horizontal (←/→)   · imágenes estáticas en vertical (↑/↓)
 // La flecha que pulses activa su carrusel; Tab alterna. El activo va delante, nítido y con halo

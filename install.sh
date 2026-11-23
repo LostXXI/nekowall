@@ -1,9 +1,13 @@
 #!/bin/sh
-# install.sh — instala las dependencias de NekoWall en Void Linux / neko-void y, si quieres,
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
+# install.sh — instala las dependencias de NekoWall en Void Linux / neko-void (xbps) o en Arch / Artix
+# (pacman; solo con compositores wlroots) y, si quieres,
 # compila e instala el programa para tu usuario.
 #
 #   ./install.sh                 detecta el escritorio y pregunta en cada paso
-#   ./install.sh --kde | --mate | --niri  fuerza el escritorio
+#   ./install.sh --kde | --mate | --niri | --wlroots  fuerza el escritorio
+#                                (wlroots = Wayfire, sway, labwc, Hyprland, river…)
 #   ./install.sh --deps-only     solo instala las dependencias
 #   ./install.sh --yes  (-y)     responde «sí» a todo (sin preguntas)
 #   ./install.sh --dry-run       muestra lo que haría, sin instalar ni cambiar nada
@@ -20,6 +24,11 @@ COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmp
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
 MATE="mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia"
 NIRI="mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia"
+WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia"
+# Arch / Artix (pacman). mpvpaper y lswt están en AUR: se instalan con yay o paru si los hay.
+ARCH_COMUNES="git base-devel rust cmake qt6-base qt6-declarative ffmpeg glib2 yt-dlp"
+ARCH_WLR="swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia"
+ARCH_AUR="mpvpaper lswt"
 
 # ── Opciones ────────────────────────────────────────────────────────────────
 ESCRITORIO=""
@@ -31,11 +40,12 @@ for a in "$@"; do
         --kde) ESCRITORIO=kde ;;
         --mate) ESCRITORIO=mate ;;
         --niri) ESCRITORIO=niri ;;
+        --wlroots|--wayfire|--sway|--labwc|--hyprland|--river) ESCRITORIO=wlroots ;;
         # (los nombres en español siguen funcionando, por compatibilidad)
         --deps-only|--solo-dependencias) SOLO_DEPS=1 ;;
         --yes|-y|--si|--sí) SI=1 ;;
         --dry-run|--simular) SIMULAR=1 ;;
-        -h|--help|--ayuda) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help|--ayuda) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Opción desconocida: $a (prueba --help)" >&2; exit 1 ;;
     esac
 done
@@ -61,7 +71,13 @@ preguntar() { # preguntar "¿Texto?" → 0 = sí
 
 # ── Comprobaciones ──────────────────────────────────────────────────────────
 [ "$(id -u)" = 0 ] && error "no lo ejecutes como root: usa tu usuario (el script pedirá sudo/doas cuando haga falta)."
-command -v xbps-install >/dev/null 2>&1 || error "este script es para Void Linux (no encontré xbps-install). Instala a mano: $COMUNES y los del README."
+if command -v xbps-install >/dev/null 2>&1; then
+    GESTOR=xbps
+elif command -v pacman >/dev/null 2>&1; then
+    GESTOR=pacman
+else
+    error "este script es para Void Linux (xbps) o Arch/Artix (pacman). En otro sistema instala a mano lo de docs/DETALLES.md."
+fi
 
 # doas si está configurado (lo usa neko-void), si no sudo.
 if command -v doas >/dev/null 2>&1 && [ -e /etc/doas.conf ]; then
@@ -79,11 +95,13 @@ if [ -z "$ESCRITORIO" ]; then
         *kde*) ESCRITORIO=kde ;;
         *mate*) ESCRITORIO=mate ;;
         *niri*) ESCRITORIO=niri ;;
+        *wayfire*|*sway*|*labwc*|*hyprland*|*river*|*wlroots*) ESCRITORIO=wlroots ;;
     esac
 fi
 if [ -z "$ESCRITORIO" ]; then
     aviso "no reconozco tu escritorio (XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-vacío})."
-    echo "NekoWall funciona en KDE Plasma (Wayland), MATE (X11) y niri (Wayland). Elige con --kde, --mate o --niri."
+    echo "NekoWall funciona en KDE Plasma, MATE, niri y compositores wlroots (Wayfire, sway, labwc…)."
+    echo "Elige con --kde, --mate, --niri o --wlroots."
     exit 1
 fi
 
@@ -91,12 +109,52 @@ case "$ESCRITORIO" in
     kde) NOMBRE="KDE Plasma"; PAQUETES="$COMUNES $KDE" ;;
     mate) NOMBRE="MATE"; PAQUETES="$COMUNES $MATE" ;;
     niri) NOMBRE="niri"; PAQUETES="$COMUNES $NIRI" ;;
+    wlroots) NOMBRE="wlroots (${XDG_CURRENT_DESKTOP:-Wayfire/sway/labwc…})"; PAQUETES="$COMUNES $WLR" ;;
 esac
+if [ "$GESTOR" = pacman ]; then
+    [ "$ESCRITORIO" = wlroots ] || error "en Arch/Artix, por ahora NekoWall solo se instala con compositores wlroots (Wayfire, sway, labwc…)."
+    PAQUETES="$ARCH_COMUNES $ARCH_WLR"
+fi
 
-paso "Escritorio: $NOMBRE · permisos con: $ROOT$( [ "$SIMULAR" = 1 ] && echo ' · MODO SIMULACIÓN')"
+paso "Escritorio: $NOMBRE · paquetes con: $GESTOR · permisos con: $ROOT$( [ "$SIMULAR" = 1 ] && echo ' · MODO SIMULACIÓN')"
 
-# ── 1. Dependencias ─────────────────────────────────────────────────────────
+# ── 1. Dependencias (Arch / Artix) ──────────────────────────────────────────
+if [ "$GESTOR" = pacman ]; then
+    FALTAN=""
+    for p in $PAQUETES; do
+        pacman -Qq "$p" >/dev/null 2>&1 || pacman -Qqg "$p" >/dev/null 2>&1 || FALTAN="$FALTAN $p"
+    done
+    if [ -z "$FALTAN" ]; then
+        paso "Todas las dependencias de los repositorios ya están instaladas."
+    else
+        paso "Faltan:$FALTAN"
+        preguntar "¿Instalarlas ahora con $ROOT pacman?" || error "sin estas dependencias NekoWall no se puede compilar."
+        # shellcheck disable=SC2086
+        hacer $ROOT pacman -S --needed $( [ "$SI" = 1 ] && echo --noconfirm ) $FALTAN \
+            || error "no se pudieron instalar (en Artix, algunos paquetes vienen de los repos de Arch: instala artix-archlinux-support)."
+    fi
+    FALTAN_AUR=""
+    for p in $ARCH_AUR; do pacman -Qq "$p" >/dev/null 2>&1 || FALTAN_AUR="$FALTAN_AUR $p"; done
+    if [ -n "$FALTAN_AUR" ]; then
+        AUR=""
+        command -v paru >/dev/null 2>&1 && AUR=paru
+        command -v yay >/dev/null 2>&1 && AUR=yay
+        if [ -n "$AUR" ]; then
+            if preguntar "Faltan$FALTAN_AUR (de AUR: vídeos de fondo y su pausa). ¿Instalarlos con $AUR?"; then
+                # shellcheck disable=SC2086
+                hacer $AUR -S --needed $( [ "$SI" = 1 ] && echo --noconfirm ) $FALTAN_AUR || aviso "no se pudieron instalar$FALTAN_AUR"
+            fi
+        else
+            aviso "faltan$FALTAN_AUR, que están en AUR (mpvpaper = vídeos de fondo; lswt = pausarlos)."
+            echo "      Instálalos con tu ayudante de AUR (yay -S$FALTAN_AUR) o a mano con makepkg. Sin ellos,"
+            echo "      NekoWall funciona igual con imágenes."
+        fi
+    fi
+fi
+
+# ── 1. Dependencias (Void) ──────────────────────────────────────────────────
 FALTAN=""
+[ "$GESTOR" = xbps ] && {
 for p in $PAQUETES; do
     xbps-query "$p" >/dev/null 2>&1 || FALTAN="$FALTAN $p"
 done
@@ -121,6 +179,7 @@ else
         hacer $ROOT xbps-install -Sy $FALTAN || error "siguen sin poder instalarse; mira el mensaje de xbps arriba."
     fi
 fi
+}
 
 if [ "$ESCRITORIO" = kde ] && [ ! -d /usr/share/plasma/wallpapers/luisbocanegra.smart.video.wallpaper.reborn ] \
    && [ ! -d "$HOME/.local/share/plasma/wallpapers/luisbocanegra.smart.video.wallpaper.reborn" ]; then
@@ -194,6 +253,10 @@ if [ "$ESCRITORIO" = mate ]; then
     hacer gsettings set "$KB:/org/mate/desktop/keybindings/nekowall-peek/" action "'\"$BIN/nekowall\" peek'"
     hacer gsettings set "$KB:/org/mate/desktop/keybindings/nekowall-peek/" binding "'<Mod4><Alt>d'"
     ATAJOS="Meta+Alt+W abre el selector y Meta+Alt+D muestra los iconos con un vídeo de fondo (ya funcionan)."
+elif [ "$ESCRITORIO" = wlroots ]; then
+    # Arranque al iniciar sesión (autostart XDG y, en Wayfire, wayfire.ini) y atajo Meta+Alt+W en Wayfire.
+    hacer "$BIN/nekowall" wlr-shortcut --gui "$BIN/nekowall-gui"
+    ATAJOS="En Wayfire, Meta+Alt+W abre el selector. En sway/labwc/Hyprland añade el atajo a mano (docs/DETALLES.md)."
 elif [ "$ESCRITORIO" = niri ]; then
     # ~/.config/niri/nekowall.kdl: atajo Meta+Alt+W y restaurar el fondo de vídeo al iniciar sesión.
     hacer "$BIN/nekowall" niri-shortcut --gui "$BIN/nekowall-gui"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 //! Backend MATE (X11).
 //!
 //! Imágenes: clave `org.mate.background picture-filename` de gsettings; Caja la lee y redibuja el

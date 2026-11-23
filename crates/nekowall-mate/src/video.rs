@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 //! Fondos de vídeo en MATE (X11).
 //!
 //! El vídeo lo reproduce `mpv` dentro de una ventana de tipo escritorio creada por `xwinwrap`, debajo

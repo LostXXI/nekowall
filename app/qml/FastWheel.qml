@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Rueda del ratón más rápida (y suave) para una rejilla o lista. Se pone dentro del Flickable:
 //     FastWheel { flick: grid }
 // No toca los clics: solo atiende la rueda. Con touchpad usa el desplazamiento en píxeles.

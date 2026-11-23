@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 //! Biblioteca SQLite: índice de fondos (sin copiar archivos), favoritos y estado.
 
 use nekowall_backend::{id_for_path, Wallpaper, WallpaperKind};

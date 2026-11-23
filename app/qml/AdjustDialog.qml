@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Ventana «Ajustar»: encuadrar una imagen en la pantalla con vista previa.
 // La vista previa (izquierda) queda fija; las opciones van a la derecha en un panel con su propia barra.
 // Arrastrar = mover · rueda = zoom (sobre el punto del ratón) · flechas = mover · +/− = zoom.

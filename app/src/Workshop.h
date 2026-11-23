@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Workshop: buscar y descargar fondos de Wallhaven (wallhaven.cc, API pública sin clave).
 //
 // - Siempre contenido apto (purity=100, SFW): no hay opción para cambiarlo.

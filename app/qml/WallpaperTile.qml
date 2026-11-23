@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Tarjeta de la rejilla: miniatura 16:9, nombre, tipo/tamaño, «Aplicar» y favorito.
 import QtQuick
 import QtQuick.Controls

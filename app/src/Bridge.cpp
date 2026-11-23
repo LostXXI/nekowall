@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 #include "Bridge.h"
 
 #include <QCoreApplication>
@@ -804,6 +806,17 @@ void Bridge::registerNiriShortcut()
                 emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(err), true);
             else
                 emit notice(QStringLiteral("Atajo Meta+Alt+W registrado: niri ya lo está usando"), false);
+        });
+}
+
+void Bridge::registerWlrShortcut()
+{
+    run({QStringLiteral("wlr-shortcut"), QStringLiteral("--gui"), QCoreApplication::applicationFilePath()},
+        [this](int code, const QByteArray &out, const QByteArray &err) {
+            if (code != 0)
+                emit notice(QStringLiteral("No se pudo registrar el atajo: ") + cleanError(err), true);
+            else
+                emit notice(QString::fromUtf8(out).trimmed(), false);
         });
 }
 

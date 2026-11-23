@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Ajustes: solo opciones que funcionan hoy. Lo pendiente se nombra como pendiente.
 import QtQuick
 import QtQuick.Controls
@@ -7,7 +9,8 @@ import QtQuick.Dialogs
 ScrollView {
     id: page
     contentWidth: availableWidth
-    readonly property bool videoDesktop: Bridge.backend === "plasma" || Bridge.backend === "mate" || Bridge.backend === "niri"
+    readonly property bool videoDesktop: Bridge.backend === "plasma" || Bridge.backend === "mate"
+                                         || Bridge.backend === "niri" || Bridge.backend === "wlroots"
     clip: true
 
     component SectionTitle: Label {
@@ -66,12 +69,13 @@ ScrollView {
             Button {
                 text: "Registrar atajo"
                 icon.name: "input-keyboard"
-                visible: Bridge.backend === "mate" || Bridge.backend === "niri"
-                onClicked: Bridge.backend === "niri" ? Bridge.registerNiriShortcut() : Bridge.registerMateShortcut()
+                visible: Bridge.backend === "mate" || Bridge.backend === "niri" || Bridge.backend === "wlroots"
+                onClicked: Bridge.backend === "niri" ? Bridge.registerNiriShortcut()
+                         : Bridge.backend === "wlroots" ? Bridge.registerWlrShortcut() : Bridge.registerMateShortcut()
             }
             Button {
                 // En niri no hay ventana de atajos (se escriben en un archivo): el botón no aparece.
-                visible: Bridge.backend !== "niri"
+                visible: Bridge.backend !== "niri" && Bridge.backend !== "wlroots"
                 text: Bridge.backend === "mate" ? "Cambiar en Atajos de teclado…" : "Cambiar en Ajustes del sistema…"
                 icon.name: "configure-shortcuts"
                 onClicked: Bridge.openShortcutSettings()
@@ -114,6 +118,13 @@ ScrollView {
                   ? "En niri los vídeos de fondo los reproduce mpvpaper (uno por pantalla, sin sonido) y NekoWall los pausa según estas opciones (cada pantalla por separado). "
                     + "Debajo queda un fotograma del vídeo, así los colores del sistema (Noctalia) siguen al fondo."
                   : "Para fondos de vídeo en niri instala mpvpaper:  sudo xbps-install -S mpvpaper"
+        }
+        Hint {
+            visible: Bridge.backend === "wlroots"
+            text: Bridge.videoSupported
+                  ? "Los vídeos de fondo los reproduce mpvpaper (uno por pantalla, sin sonido) y NekoWall los pausa según estas opciones. "
+                    + "Si usas pcmanfm-qt para los iconos del escritorio, NekoWall le pone el fondo a él para que se vean los iconos."
+                  : "Para fondos de vídeo instala mpvpaper (en Arch/Artix está en AUR: yay -S mpvpaper)."
         }
         Hint {
             visible: Bridge.backend === "mate" && !Bridge.videoPluginInstalled
@@ -201,10 +212,11 @@ ScrollView {
         Hint {
             text: "Backend: " + (Bridge.backend || "detectando…")
                   + (Bridge.backend === "plasma" ? " (KDE Plasma)" : Bridge.backend === "mate" ? " (MATE, X11)"
-                     : Bridge.backend === "niri" ? " (niri, Wayland · imágenes con Noctalia o awww)" : "")
+                     : Bridge.backend === "niri" ? " (niri, Wayland · imágenes con Noctalia o awww)"
+                     : Bridge.backend === "wlroots" ? " (Wayfire, sway u otro compositor wlroots)" : "")
                   + " · Fondos de vídeo: " + (Bridge.videoSupported
                         ? (Bridge.backend === "mate" ? "disponibles (mpv + xwinwrap)"
-                           : Bridge.backend === "niri" ? "disponibles (mpvpaper)"
+                           : (Bridge.backend === "niri" || Bridge.backend === "wlroots") ? "disponibles (mpvpaper)"
                                                      : "disponibles (plugin Smart Video Wallpaper Reborn)")
                         : Bridge.backend === "plasma" ? "no disponibles; instala un plugin de vídeo para Plasma 6"
                                                       : "aún no implementados en este escritorio")

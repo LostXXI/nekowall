@@ -159,6 +159,39 @@ Para quitarlo: borra ese archivo y la línea `include`.
   imagen en una y vídeo en la otra, dos vídeos distintos, pausa por pantalla y el selector rápido abriéndose
   en la pantalla activa. Workshop, Descargar con enlace (con vista previa) y la descarga también funcionan.*
 
+### Instalar con Wayfire, sway, labwc, Hyprland o river (wlroots) — también en Arch / Artix
+
+`./install.sh` detecta estos compositores (o usa `--wlroots`). En **Arch/Artix** instala con `pacman`:
+
+```bash
+sudo pacman -S --needed git base-devel rust cmake qt6-base qt6-declarative ffmpeg glib2 yt-dlp \
+    swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia
+yay -S mpvpaper lswt        # están en AUR (vídeos de fondo y su pausa)
+```
+
+(En Artix, algunos vienen de los repos de Arch: instala `artix-archlinux-support` si pacman no los encuentra.)
+En Void: `sudo xbps-install -S mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia`.
+
+Después de compilar, `~/.local/bin/nekowall wlr-shortcut --gui ~/.local/bin/nekowall-gui` deja el fondo
+restaurándose al iniciar sesión (autostart XDG y, en Wayfire, `[autostart]` de `wayfire.ini`) y, en
+**Wayfire**, el atajo **Meta+Alt+W** (`[command]` de `wayfire.ini`). En sway/labwc/Hyprland el atajo se añade
+a mano, por ejemplo en sway: `bindsym Mod4+Mod1+w exec ~/.local/bin/nekowall-gui --hud`.
+
+#### Cómo funciona con wlroots
+
+- **Pantallas**: `wlr-randr --json`.
+- **Iconos del escritorio con pcmanfm-qt** (`pcmanfm-qt --desktop`): pcmanfm-qt pinta su propio fondo bajo
+  los iconos, así que cualquier otro programa de fondos (swaybg, Waywallen…) o queda tapado o tapa los
+  iconos. NekoWall lo detecta y le pone el fondo **a pcmanfm-qt** (`--set-wallpaper`): iconos y fondo se ven a
+  la vez. Con pcmanfm-qt hay un solo fondo para todas las pantallas. Con un **vídeo**, el vídeo va encima
+  de su escritorio (como en MATE): para ver los iconos, pon una imagen.
+- **Sin pcmanfm-qt**: imágenes con **awww** (si está) o **swaybg** (uno por pantalla).
+- **Vídeos**: **mpvpaper** por pantalla, sin audio ni configuración personal de mpv; debajo, un fotograma.
+- **Pausa**: `nekowall _wlr-video` mira las ventanas con **lswt** (maximizadas, activas, visibles) y pausa
+  según Ajustes.
+- **No uses otro gestor de fondos a la vez** (Waywallen, swaybg en el autostart del compositor…): pelearían
+  por el fondo.
+
 ### Compilar (todos los escritorios)
 
 ```bash
@@ -255,7 +288,17 @@ Variables: `NEKOWALL_DB` (ruta de la biblioteca), `NEKOWALL_CLI` (ruta de `nekow
 
 ## Licencia
 
-Pendiente de definir (el `Cargo.toml` indica provisionalmente GPL-3.0-or-later).
+**PolyForm Noncommercial 1.0.0** (texto completo en [`LICENSE`](../LICENSE)). © 2026 Lost (LostXXI).
+
+- Puedes usar, estudiar, modificar y compartir NekoWall para **cualquier fin no comercial** (uso personal,
+  estudio, organizaciones sin ánimo de lucro…).
+- **No** se puede vender ni usar para ganar dinero sin permiso del autor.
+- Quien lo comparta (o comparta una versión modificada) debe incluir la licencia y la línea
+  `Required Notice: Copyright © 2026 Lost (LostXXI) …` del archivo `LICENSE`.
+- Cada archivo de código lleva su identificador `SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0` y la
+  línea de autoría.
+
+Las bibliotecas y programas que usa NekoWall (Qt, mpv, ffmpeg, yt-dlp…) conservan sus propias licencias.
 
 ---
 

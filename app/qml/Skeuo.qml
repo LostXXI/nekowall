@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Placa «esqueumórfica» (inspirada en el tema SkeuoCord de Marda33): pieza de plástico brillante
 // con degradado de dos tonos, bisel y sombra. Se usa para teclas, indicadores y etiquetas del HUD.
 //   lit: true  → encendida (color de acento, p. ej. carrusel activo o «Actual»)

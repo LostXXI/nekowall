@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // «Pegar enlace»: descargar un fondo desde un enlace (YouTube, Reddit, una página con vídeo, un archivo
 // directo…). Vista previa FIJA a la izquierda; los formatos, de menor a mayor, en un carrusel a la
 // derecha que se desplaza por su cuenta. Se descarga sin audio a nekowallpapers.

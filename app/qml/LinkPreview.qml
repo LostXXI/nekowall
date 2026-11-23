@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Vista previa de vídeo para «Pegar enlace». Va en su propio archivo y se carga con un Loader: si
 // falta Qt Multimedia (qt6-multimedia), el Loader falla sin romper la ventana y se ve la miniatura.
 import QtQuick

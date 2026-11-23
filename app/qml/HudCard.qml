@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Tarjeta del carrusel: paralelogramo con esquinas redondeadas.
 // La escala, la profundidad y la opacidad las da la posición en el PathView.
 import QtQuick

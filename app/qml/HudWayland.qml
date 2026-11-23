@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // HUD en Wayland: el mismo Hud.qml más layer-shell (capa «overlay» anclada a los cuatro bordes y
 // teclado en exclusiva). Se carga solo si el módulo org.kde.layershell existe (paquete layer-shell-qt);
 // en X11 o sin ese módulo se usa Hud.qml directamente (ver main.cpp).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // nekowall-gui            → ventana principal (biblioteca y ajustes)
 // nekowall-gui --hud      → selector rápido a pantalla completa (--hud --imagenes: empieza en imágenes)
 // nekowall-gui --import <ruta>...  → ventana principal e importa esas rutas (p. ej. «Abrir con» desde Dolphin)

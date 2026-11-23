@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Ventana principal: cabecera con acciones, barra lateral, páginas y barra de estado.
 import QtQuick
 import QtQuick.Controls
@@ -377,7 +379,15 @@ ApplicationWindow {
                 spacing: 8
                 Label { text: "NekoWall"; font.pixelSize: 26; font.weight: Font.DemiBold }
                 Label { text: "Gestor de fondos de pantalla estáticos y animados para Void Linux y KDE Plasma (Wayland)."; wrapMode: Text.Wrap; Layout.fillWidth: true }
-                Label { text: "Versión 0.1 (prototipo) · Licencia provisional GPL-3.0-or-later"; opacity: 0.7 }
+                Label { text: "Versión 0.1 (prototipo)"; opacity: 0.7 }
+                Label { text: "© 2026 Lost (LostXXI) · github.com/LostXXI/nekowall"; font.weight: Font.DemiBold }
+                Label {
+                    text: "Licencia PolyForm Noncommercial 1.0.0: puedes usarlo, estudiarlo y modificarlo libremente para "
+                          + "uso personal y sin ánimo de lucro. Venderlo o usarlo para ganar dinero requiere permiso del autor."
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                    opacity: 0.8
+                }
                 Label { text: "Inspirado visualmente en Aura (github.com/antwny/aura); no reutiliza su código."; opacity: 0.7; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 Item { Layout.fillHeight: true }
             }

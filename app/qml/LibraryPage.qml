@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Biblioteca: búsqueda, orden, filtros con contador y rejilla de miniaturas.
 // Teclado en la rejilla: flechas = mover · Enter = aplicar · F = favorito · Supr = quitar.
 import QtQuick

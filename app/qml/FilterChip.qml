@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright © 2026 Lost (LostXXI) — NekoWall — https://github.com/LostXXI/nekowall
 // Filtro en forma de píldora: «Animados (14)». Marcado = color de acento.
 import QtQuick
 import QtQuick.Controls
