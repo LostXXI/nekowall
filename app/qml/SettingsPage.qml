@@ -119,26 +119,11 @@ ScrollView {
                     + "Debajo queda un fotograma del vídeo, así los colores del sistema (Noctalia) siguen al fondo."
                   : "Para fondos de vídeo en niri instala mpvpaper:  sudo xbps-install -S mpvpaper"
         }
-        SectionTitle { text: "Iconos del escritorio"; visible: Bridge.backend === "wlroots" }
-        CheckBox {
-            visible: Bridge.backend === "wlroots"
-            text: "Usar los iconos del escritorio de NekoWall (se ven encima del fondo animado)"
-            checked: Bridge.desktopIcons
-            onToggled: Bridge.setDesktopIcons(checked)
-            Component.onCompleted: if (Bridge.backend === "wlroots") Bridge.loadDesktopIcons()
-        }
-        Hint {
-            visible: Bridge.backend === "wlroots"
-            text: "Con el escritorio de pcmanfm-qt no hace falta: NekoWall vuelve transparente su fondo y pone el vídeo "
-                  + "debajo, así se ven SUS iconos y el vídeo a la vez. Esta opción es una alternativa (o para sway, niri… "
-                  + "que no traen iconos): NekoWall dibuja la carpeta Escritorio por su cuenta, imitando a pcmanfm-qt con "
-                  + "sus mismos ajustes, perfil y posiciones, y lo reemplaza en el inicio (vuelve al desactivarla)."
-        }
         Hint {
             visible: Bridge.backend === "wlroots"
             text: Bridge.videoSupported
                   ? "Los vídeos de fondo los reproduce mpvpaper (uno por pantalla, sin sonido) y NekoWall los pausa según estas opciones. "
-                    + "Si usas pcmanfm-qt para los iconos del escritorio, NekoWall le pone el fondo a él para que se vean los iconos."
+                    + "Si usas los iconos del escritorio de pcmanfm-qt, NekoWall vuelve transparente su fondo y pone el vídeo debajo: se ven sus iconos y el vídeo a la vez."
                   : "Para fondos de vídeo instala mpvpaper (en Arch/Artix está en AUR: yay -S mpvpaper)."
         }
         Hint {
@@ -212,6 +197,22 @@ ScrollView {
             Accessible.name: "Qué hacer con vídeos grandes al importar"
         }
         Hint { text: "La conversión crea una copia junto al original («nombre (1080p30).mp4») y la biblioteca usa la copia. El original no se toca. También puedes optimizar un vídeo que ya está en la biblioteca: clic derecho → «Optimizar para mi pantalla…»." }
+
+        SectionTitle { text: "Iconos del escritorio"; visible: Bridge.backend === "wlroots" }
+        CheckBox {
+            visible: Bridge.backend === "wlroots"
+            text: "Usar los iconos del escritorio de NekoWall (se ven encima del fondo animado)"
+            checked: Bridge.desktopIcons
+            onToggled: Bridge.setDesktopIcons(checked)
+            Component.onCompleted: if (Bridge.backend === "wlroots") Bridge.loadDesktopIcons()
+        }
+        Hint {
+            visible: Bridge.backend === "wlroots"
+            text: "Con el escritorio de pcmanfm-qt no hace falta: NekoWall vuelve transparente su fondo y pone el vídeo "
+                  + "debajo, así se ven SUS iconos y el vídeo a la vez. Esta opción es una alternativa (o para sway, niri… "
+                  + "que no traen iconos): NekoWall dibuja la carpeta Escritorio por su cuenta, imitando a pcmanfm-qt con "
+                  + "sus mismos ajustes, perfil y posiciones, y lo reemplaza en el inicio (vuelve al desactivarla)."
+        }
 
         SectionTitle { text: "Animaciones" }
         Hint {

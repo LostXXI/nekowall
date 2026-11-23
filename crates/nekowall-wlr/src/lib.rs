@@ -219,12 +219,48 @@ fn desktop_exec(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()?.lines().find_map(|l| l.trim().strip_prefix("Exec=").map(|e| e.trim().to_string()))
 }
 
+/// Momento de arranque de un proceso (en «ticks» desde el arranque del sistema) y segundos desde que arrancó.
+fn proc_start(pid: u32) -> Option<(u64, f64)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // El nombre va entre paréntesis y puede tener espacios: los campos empiezan tras el último ')'.
+    let rest = &stat[stat.rfind(')')? + 2..];
+    let start: u64 = rest.split_whitespace().nth(19)?.parse().ok()?;
+    let uptime: f64 = std::fs::read_to_string("/proc/uptime").ok()?.split_whitespace().next()?.parse().ok()?;
+    Some((start, uptime - start as f64 / 100.0))     // USER_HZ = 100 en Linux
+}
+
+/// Ejecuta y espera como mucho `secs`; si sigue en marcha, devuelve el proceso (no se queda bloqueado).
+fn run_bounded(c: &mut Command, secs: f64) -> Option<std::process::Child> {
+    let mut child = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
+    let t0 = std::time::Instant::now();
+    while t0.elapsed().as_secs_f64() < secs {
+        if let Ok(Some(_)) = child.try_wait() {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Some(child)
+}
+
 /// pcmanfm-qt pone su escritorio en la capa «background», la misma que mpvpaper, y dentro de una capa queda
-/// encima lo último que se abre. Tras arrancar un vídeo se cierra y se vuelve a abrir su escritorio (en el
-/// mismo proceso, con su perfil y entorno) para que sus iconos queden encima del vídeo.
+/// encima lo último que se abre. Si su escritorio es anterior al vídeo, se cierra y se vuelve a abrir (en el
+/// mismo proceso, por D-Bus, con su perfil y entorno) para que sus iconos queden encima del vídeo.
 fn raise_pcmanfm_desktop(monitors: &[String]) {
-    if !pcmanfm_desktop() {
-        return;
+    let pcm: Vec<u32> = pids_of("pcmanfm-qt").into_iter()
+        .filter(|p| cmdline(*p).iter().any(|a| a.starts_with("--desktop"))).collect();
+    let Some(&pcm_pid) = pcm.first() else { return };
+    let newest_video = pids_of("mpvpaper").into_iter().filter_map(|p| proc_start(p).map(|s| s.0)).max();
+    if let (Some((pcm_start, _)), Some(video)) = (proc_start(pcm_pid), newest_video) {
+        if pcm_start > video {
+            return;                                   // arrancó después del vídeo: ya está encima
+        }
+    }
+    // Recién arrancado (p. ej. al iniciar sesión) puede no atender aún las órdenes por D-Bus.
+    for _ in 0..40 {
+        if proc_start(pcm_pid).is_none_or(|(_, age)| age >= 3.0) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     // Esperar a que mpvpaper esté en marcha (su socket) y a que muestre su capa.
     for _ in 0..40 {
@@ -237,14 +273,21 @@ fn raise_pcmanfm_desktop(monitors: &[String]) {
     let launch = pcmanfm_launch();
     for arg in ["--desktop-off", "--desktop"] {
         let mut c = Command::new("pcmanfm-qt");
-        c.arg(arg).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        c.arg(arg);
         if let Some(p) = &launch.profile {
             c.arg(format!("--profile={p}"));
         }
         for (k, v) in &launch.env {
             c.env(k, v);
         }
-        let _ = c.status();
+        // Si no había a quién reenviar la orden, esta llamada se queda como instancia propia: con
+        // --desktop-off no sirve (se cierra); con --desktop ES el escritorio (se deja en marcha).
+        if let Some(mut child) = run_bounded(&mut c, 3.0) {
+            if arg == "--desktop-off" {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
     }
 }
 
