@@ -36,10 +36,28 @@ QPixmap ThemeIconProvider::requestPixmap(const QString &id, QSize *size, const Q
 {
     const int px = requested.width() > 0 ? requested.width() : 48;
     QIcon icon;
-    if (QFileInfo(id).isAbsolute() && QFileInfo::exists(id))
+    if (QFileInfo(id).isAbsolute() && QFileInfo::exists(id)) {
         icon = QIcon(id);                                  // Icon= con ruta completa
-    else
-        icon = QIcon::fromTheme(id);
+    } else {
+        // Mismo orden que GIO (g_themed_icon_new_with_default_fallbacks, el que usa libfm-qt / pcmanfm-qt):
+        // el nombre y sus versiones más cortas («a-b-c», «a-b», «a»), y después sus versiones -symbolic.
+        // P. ej. Adwaita solo trae «preferences-desktop-wallpaper-symbolic».
+        QStringList chain;
+        for (QString n = id; !n.isEmpty();) {
+            chain << n;
+            const qsizetype dash = n.lastIndexOf(QLatin1Char('-'));
+            n = dash > 0 ? n.left(dash) : QString();
+        }
+        const QStringList regular = chain;
+        for (const QString &n : regular)
+            if (!n.endsWith(QStringLiteral("-symbolic")))
+                chain << n + QStringLiteral("-symbolic");
+        for (const QString &n : std::as_const(chain))
+            if (QIcon::hasThemeIcon(n)) {
+                icon = QIcon::fromTheme(n);
+                break;
+            }
+    }
     for (const char *alt : {"text-x-generic", "unknown", "application-x-executable"})
         if (icon.isNull())
             icon = QIcon::fromTheme(QString::fromLatin1(alt));

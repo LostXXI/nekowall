@@ -200,6 +200,10 @@ a mano, por ejemplo en sway: `bindsym Mod4+Mod1+w exec ~/.local/bin/nekowall-gui
     y 1920×1080). Si dos iconos caen en la misma celda (posiciones guardadas a otra resolución), pcmanfm-qt
     los reparte en el orden de su `std::unordered_map`: NekoWall reproduce ese orden (hash de libstdc++ y sus
     cubetas primas; comprobado contra el mapa real de C++ con 3 a 700 nombres).
+  - Iconos del tema con el mismo orden de búsqueda que GIO/libfm-qt: el nombre, sus versiones más cortas
+    («a-b-c», «a-b», «a») y luego las `-symbolic` (Adwaita solo trae algunos iconos en simbólico).
+  - Probado contra pcmanfm-qt 2.5 (Artix) y 2.4.1 (Void): 42 + 13 casos idénticos (resoluciones de 800×600
+    a 4K, vertical, ultrapanorámica, escalas 1,25–2 e iconos/letras/márgenes distintos).
   - Ratón: clic selecciona, doble clic abre (o un clic con «clic simple»), Ctrl/Mayús, recuadro de selección,
     arrastrar para recolocar (queda fijo y se guarda), soltar sobre una carpeta (mueve) o la Papelera,
     soltar archivos desde otro programa (mueve si es el mismo disco, copia si no; se leen `text/uri-list` y

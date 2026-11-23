@@ -37,7 +37,9 @@ Responde **S** (sí) a todas las preguntas y escribe tu contraseña cuando la pi
 Tarda unos minutos: instala lo que falte y compila el programa. Cuando termine, NekoWall estará en el
 menú de aplicaciones.
 
-> Si sale un error con **«unresolvable shlib»**, tu sistema necesita actualizarse: el instalador te lo ofrece, di que sí.
+> Si sale un error con **«unresolvable shlib»**, tu sistema necesita actualizarse. El instalador **no lo hace por ti**
+> (actualizar puede cambiar el núcleo y recompilar drivers como NVIDIA): te avisa de qué se actualizaría.
+> Actualiza tú con `sudo xbps-install -Su`, reinicia, comprueba que todo arranca y vuelve a ejecutar `./install.sh`.
 
 > **Arch / Artix con Wayfire, sway, labwc…:** el instalador detecta el compositor aunque `XDG_CURRENT_DESKTOP`
 > diga otra cosa (p. ej. `LXQt`), instala lo de los repos con `pacman` y `mpvpaper`/`lswt` con `yay` o `paru`.

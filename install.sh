@@ -20,14 +20,14 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # ── Paquetes ────────────────────────────────────────────────────────────────
-COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmpeg6 glib yt-dlp"
+COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel qt6-svg xdg-utils ffmpeg6 glib yt-dlp"
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
 MATE="mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia"
 NIRI="mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia"
-WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia qt6-svg xdg-utils"
+WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia"
 # Arch / Artix (pacman). mpvpaper y lswt están en AUR: se instalan con yay o paru si los hay.
-ARCH_COMUNES="git base-devel rust cmake qt6-base qt6-declarative ffmpeg glib2 yt-dlp"
-ARCH_WLR="swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia qt6-svg xdg-utils"
+ARCH_COMUNES="git base-devel rust cmake qt6-base qt6-declarative qt6-svg xdg-utils ffmpeg glib2 yt-dlp"
+ARCH_WLR="swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia"
 ARCH_AUR="mpvpaper lswt"
 
 # ── Opciones ────────────────────────────────────────────────────────────────
@@ -188,17 +188,36 @@ else
     # shellcheck disable=SC2086
     if ! hacer $ROOT xbps-install -Sy $FALTAN; then
         # Causa típica en Void: el sistema no está al día y los repos ya traen otras versiones
-        # («broken, unresolvable shlib …»). Hay que actualizar primero.
-        PENDIENTES=$(xbps-install -nu 2>/dev/null | wc -l)
-        [ "$PENDIENTES" -gt 0 ] || error "no se pudieron instalar las dependencias (mira el mensaje de xbps arriba)."
-        aviso "tu sistema tiene $PENDIENTES actualizaciones pendientes: Void no deja instalar paquetes nuevos"
-        echo "      hasta ponerlo al día (por eso salen errores como «unresolvable shlib»)."
-        preguntar "¿Actualizar el sistema ahora ($ROOT xbps-install -Su) y reintentar?" \
-            || error "actualiza con «$ROOT xbps-install -Su» y vuelve a ejecutar este script."
-        hacer $ROOT xbps-install -Syu -y xbps          # primero el propio xbps, por si cambió
-        hacer $ROOT xbps-install -Syu -y
-        # shellcheck disable=SC2086
-        hacer $ROOT xbps-install -Sy $FALTAN || error "siguen sin poder instalarse; mira el mensaje de xbps arriba."
+        # («broken, unresolvable shlib …»). Lo único que se actualiza aquí es el propio xbps (no toca el
+        # núcleo ni los drivers). Actualizar TODO el sistema NUNCA lo hace este script, ni con --yes:
+        # puede instalar un núcleo nuevo y recompilar drivers DKMS (NVIDIA, Wi-Fi…); si uno falla, el
+        # equipo puede no arrancar. Eso lo decide y lo hace el usuario.
+        if xbps-install -nu 2>/dev/null | grep -q "^xbps-[0-9]"; then
+            paso "Hay una versión nueva de xbps: actualizo solo xbps (no toca el núcleo ni los drivers) y reintento."
+            hacer $ROOT xbps-install -Suy xbps || true
+            # shellcheck disable=SC2086
+            hacer $ROOT xbps-install -Sy $FALTAN && OK_XBPS=1
+        fi
+        if [ "${OK_XBPS:-0}" != 1 ]; then
+            PENDIENTES=$(xbps-install -nu 2>/dev/null | wc -l)
+            [ "$PENDIENTES" -gt 0 ] || error "no se pudieron instalar las dependencias (mira el mensaje de xbps arriba)."
+            echo
+            aviso "tu sistema tiene $PENDIENTES actualizaciones pendientes y Void no deja instalar paquetes nuevos"
+            echo "      hasta ponerlo al día (por eso salen errores como «unresolvable shlib»)."
+            echo "      Este instalador NO actualiza el sistema por ti, porque eso puede cambiar el núcleo y"
+            echo "      recompilar drivers, y es mejor que lo hagas tú con calma:"
+            NUCLEO=$(xbps-install -nu 2>/dev/null | awk '{print $1}' | grep -E '^linux[0-9.]*-[0-9]' | tr '\n' ' ')
+            DKMS=$(xbps-query -l 2>/dev/null | awk '{print $2}' | grep -E -- '-dkms-[0-9]' | tr '\n' ' ')
+            [ -n "$NUCLEO" ] && echo "        · Incluye un NÚCLEO NUEVO: $NUCLEO"
+            [ -n "$DKMS" ] && echo "        · Tienes drivers DKMS que se recompilarán para él: $DKMS" \
+                           && echo "          Si alguno falla al compilar, NO reinicies: arréglalo antes (o arranca luego el núcleo"\
+                           && echo "          anterior desde GRUB → «Advanced options for Void»)."
+            echo
+            echo "      1. Actualiza:   $ROOT xbps-install -Su   (lee bien lo que muestra antes de aceptar)"
+            echo "      2. Reinicia y comprueba que todo arranca bien."
+            echo "      3. Vuelve a ejecutar:   ./install.sh"
+            exit 1
+        fi
     fi
 fi
 }
