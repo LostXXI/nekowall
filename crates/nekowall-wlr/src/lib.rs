@@ -229,6 +229,37 @@ fn proc_start(pid: u32) -> Option<(u64, f64)> {
     Some((start, uptime - start as f64 / 100.0))     // USER_HZ = 100 en Linux
 }
 
+/// Espera a que el escritorio de pcmanfm-qt lleve unos segundos en marcha antes de mandarle órdenes.
+/// Recién arrancado aún no atiende por D-Bus, y una orden nuestra se quedaría como «instancia principal»:
+/// el pcmanfm-qt de verdad le cedería el escritorio y se cerraría (pasaba al iniciar sesión).
+fn wait_pcmanfm_ready() {
+    for _ in 0..50 {
+        let young = pids_of("pcmanfm-qt").into_iter()
+            .filter(|p| cmdline(*p).iter().any(|a| a.starts_with("--desktop")))
+            .any(|p| proc_start(p).is_some_and(|(_, age)| age < 3.0));
+        if !young {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Orden a la instancia de pcmanfm-qt en marcha (con su perfil), cuando ya puede atenderla.
+fn pcmanfm_cmd(args: &[&str]) -> Result<String, WallpaperError> {
+    wait_pcmanfm_ready();
+    run("pcmanfm-qt", args)
+}
+
+/// ¿El fondo guardado de pcmanfm-qt ya es este archivo con este modo?
+fn pcmanfm_wallpaper_is(file: &Path, mode: &str) -> bool {
+    let prof = pcmanfm_launch().profile.unwrap_or_else(|| "default".into());
+    let conf = config_dir().join("pcmanfm-qt").join(prof).join("settings.conf");
+    let text = std::fs::read_to_string(conf).unwrap_or_default();
+    let get = |k: &str| text.lines().find_map(|l| l.trim().strip_prefix(k).map(|v| v.trim_start_matches([' ', '=']).trim().to_string()));
+    get("Wallpaper=").or_else(|| get("Wallpaper ")).as_deref() == Some(&*file.to_string_lossy())
+        && get("WallpaperMode=").or_else(|| get("WallpaperMode ")).as_deref() == Some(mode)
+}
+
 /// Ejecuta y espera como mucho `secs`; si sigue en marcha, devuelve el proceso (no se queda bloqueado).
 fn run_bounded(c: &mut Command, secs: f64) -> Option<std::process::Child> {
     let mut child = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
@@ -270,23 +301,64 @@ fn raise_pcmanfm_desktop(monitors: &[String]) {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     std::thread::sleep(std::time::Duration::from_millis(500));
+    // ¿Tiene pcmanfm-qt ventanas abiertas (carpetas)? Con --desktop-off se cerraría entero si no.
+    let has_windows = run("lswt", &["-j"]).ok().and_then(|j| serde_json::from_str::<Value>(&j).ok())
+        .and_then(|v| v["toplevels"].as_array().map(|ts| ts.iter().any(|t| {
+            t["app-id"].as_str().is_some_and(|a| a.contains("pcmanfm"))
+        })))
+        .unwrap_or(false);
     let launch = pcmanfm_launch();
-    for arg in ["--desktop-off", "--desktop"] {
-        let mut c = Command::new("pcmanfm-qt");
-        c.arg(arg);
-        if let Some(p) = &launch.profile {
-            c.arg(format!("--profile={p}"));
-        }
-        for (k, v) in &launch.env {
-            c.env(k, v);
-        }
-        // Si no había a quién reenviar la orden, esta llamada se queda como instancia propia: con
-        // --desktop-off no sirve (se cierra); con --desktop ES el escritorio (se deja en marcha).
-        if let Some(mut child) = run_bounded(&mut c, 3.0) {
-            if arg == "--desktop-off" {
+    if has_windows {
+        // Mismo proceso (sus ventanas siguen abiertas): cerrar y reabrir solo el escritorio, por D-Bus.
+        for arg in ["--desktop-off", "--desktop"] {
+            let mut c = Command::new("pcmanfm-qt");
+            c.arg(arg);
+            if let Some(p) = &launch.profile {
+                c.arg(format!("--profile={p}"));
+            }
+            for (k, v) in &launch.env {
+                c.env(k, v);
+            }
+            if let Some(mut child) = run_bounded(&mut c, 3.0) {
                 let _ = child.kill();
                 let _ = child.wait();
             }
+        }
+        return;
+    }
+    // Sin ventanas: reiniciar pcmanfm-qt con su misma línea de arranque (entorno y perfil), aparte de NekoWall.
+    let cmd = pcmanfm_autostart_command().unwrap_or_else(|| {
+        let env: String = launch.env.iter().map(|(k, v)| format!("{k}={v} ")).collect();
+        let prefix = if env.is_empty() { String::new() } else { format!("env {env}") };
+        format!("{prefix}{}", cmdline(pcm_pid).join(" "))
+    });
+    for p in &pcm {
+        let _ = Command::new("kill").arg(p.to_string()).status();
+    }
+    for _ in 0..30 {
+        if pcm.iter().all(|p| !std::path::Path::new(&format!("/proc/{p}")).exists()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // Si el viejo aún no soltó su nombre en D-Bus, el nuevo se cree segundo y se cierra: comprobar y reintentar.
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let log = cache_dir().join("pcmanfm.log");
+    let _ = std::fs::create_dir_all(cache_dir());
+    for _ in 0..3 {
+        let out = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
+        let mut c = Command::new("sh");
+        c.args(["-c", &cmd]).stdin(Stdio::null()).process_group(0);
+        match out.and_then(|f| f.try_clone().ok().map(|g| (f, g))) {
+            Some((f, g)) => { c.stdout(f).stderr(g); }
+            None => { c.stdout(Stdio::null()).stderr(Stdio::null()); }
+        }
+        if c.spawn().is_err() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+        if pcmanfm_desktop() {
+            return;
         }
     }
 }
@@ -411,7 +483,9 @@ impl WlrBackend {
         let p = path.to_string_lossy();
         if pcmanfm_desktop() {
             // pcmanfm-qt tiene un solo fondo para todas las pantallas (por línea de órdenes).
-            run("pcmanfm-qt", &["--set-wallpaper", &p, "--wallpaper-mode", "zoom"])?;
+            if !pcmanfm_wallpaper_is(path, "zoom") {
+                pcmanfm_cmd(&["--set-wallpaper", &p, "--wallpaper-mode", "zoom"])?;
+            }
             return Ok(());
         }
         if has("awww") {
@@ -469,7 +543,9 @@ impl WlrBackend {
         // Con pcmanfm-qt (iconos): su fondo se vuelve transparente y el vídeo va debajo, así se ven sus iconos.
         if pcmanfm_desktop() {
             let svg = transparent_svg()?;
-            run("pcmanfm-qt", &["--set-wallpaper", &svg.to_string_lossy(), "--wallpaper-mode", "tile"])?;
+            if !pcmanfm_wallpaper_is(&svg, "tile") {
+                pcmanfm_cmd(&["--set-wallpaper", &svg.to_string_lossy(), "--wallpaper-mode", "tile"])?;
+            }
         }
         let pid = spawn_detached(Command::new("mpvpaper").args(["-l", "background", "-o", &opts, monitor]).arg(video))?;
         st.insert(format!("pid.{monitor}"), pid.to_string());

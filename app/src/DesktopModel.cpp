@@ -1218,7 +1218,7 @@ void DesktopModel::deleteSelected()
 QString DesktopModel::renameItem(int row, const QString &newNameIn)
 {
     if (row < 0 || row >= m_items.size())
-        return QStringLiteral("No existe");
+        return {};                           // el icono desapareció mientras se renombraba
     Item &it = m_items[row];
     const QString newName = newNameIn.trimmed();
     if (newName.isEmpty() || newName == it.name)

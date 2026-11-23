@@ -280,6 +280,7 @@ Window {
                             function commit() {
                                 if (done) return
                                 done = true
+                                if (cell.index < 0 || root.renaming !== cell.index) return   // el icono ya no está
                                 const err = dm.renameItem(cell.index, text)
                                 root.renaming = -1
                                 desk.forceActiveFocus()
@@ -473,7 +474,7 @@ Window {
 
     Menu {                                            // mismo orden que el de pcmanfm-qt 2.x
         id: desktopMenu
-        width: 300
+        width: 340
         MenuItem { text: "Abrir en una terminal"; icon.source: "image://icono/utilities-terminal"; onTriggered: dm.openTerminal() }
         Menu {
             title: "Crear nuevo"
@@ -612,8 +613,8 @@ Window {
         anchors.centerIn: Overlay.overlay
         modal: true
         title: "Preferencias del escritorio"
-        width: Math.min(560, root.width - 40)
-        height: Math.min(640, root.height - 40)
+        width: Math.min(720, root.width - 40)
+        height: Math.min(680, root.height - 40)
         property var p: ({})
         readonly property var sizes: [16, 24, 32, 48, 64, 96, 128]
         onOpened: {
@@ -738,7 +739,7 @@ Window {
                             }
                         }
                     }
-                    CheckBox { id: pDefFm; text: "Abrir las carpetas del escritorio con el gestor de archivos predeterminado" }
+                    CheckBox { id: pDefFm; text: "Abrir las carpetas con el gestor de archivos predeterminado" }
                     CheckBox { id: pSticky; text: "Fijar todos los elementos en su posición" }
                     CheckBox { id: pSingle; text: "Abrir con un solo clic" }
                 }

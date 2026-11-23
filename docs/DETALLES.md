@@ -222,8 +222,11 @@ a mano, por ejemplo en sway: `bindsym Mod4+Mod1+w exec ~/.local/bin/nekowall-gui
 - **Vídeo con los iconos de pcmanfm-qt**: al poner un vídeo, NekoWall le pone a pcmanfm-qt un SVG
   transparente en mosaico (`~/.cache/nekowall/transparente.svg`, el mismo truco que usan los de Waywallen) y
   mpvpaper va en la capa «background», debajo. Como pcmanfm-qt también usa esa capa y queda encima lo último
-  que se abre, NekoWall cierra y reabre su escritorio (`pcmanfm-qt --desktop-off` / `--desktop`, en el mismo
-  proceso, con su perfil y entorno) tras arrancar el vídeo. Resultado: SUS iconos encima del vídeo en
+  que se abre, si su escritorio es anterior al vídeo NekoWall lo reabre: con ventanas de pcmanfm-qt abiertas,
+  `--desktop-off` / `--desktop` (mismo proceso); sin ninguna, lo reinicia con su misma línea de arranque
+  (con `--desktop-off` se cerraría entero), comprueba que sigue vivo y reintenta (salida en
+  `~/.cache/nekowall/pcmanfm.log`). Nunca le manda órdenes a un pcmanfm-qt con menos de 3 s en marcha: al
+  iniciar sesión, una orden adelantada se quedaba como instancia principal y su escritorio se cerraba. Resultado: SUS iconos encima del vídeo en
   movimiento. Ojo: con un fondo de *color* transparente (`BgColor=#00000000`) Wayfire deja de pedirle
   fotogramas al vídeo y se congela; con el SVG en mosaico no. Con una imagen, se la pone a pcmanfm-qt.
 - **Perfil y entorno de pcmanfm-qt**: se leen de su línea de arranque (`[autostart]` de Wayfire o autostart
