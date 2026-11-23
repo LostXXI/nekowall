@@ -122,7 +122,12 @@ public:
     // MATE: registra Meta+Alt+W → «nekowall-gui --hud» como atajo personalizado (gsettings, efecto inmediato).
     Q_INVOKABLE void registerMateShortcut();
     Q_INVOKABLE void registerNiriShortcut();   // Meta+Alt+W en ~/.config/niri/nekowall.kdl
-    Q_INVOKABLE void registerWlrShortcut();    // Wayfire: Meta+Alt+W en wayfire.ini; otros: arranque
+    Q_INVOKABLE void registerWlrShortcut();
+    // Iconos del escritorio de NekoWall (wlroots): encima del fondo animado, en lugar de pcmanfm-qt.
+    Q_PROPERTY(bool desktopIcons READ desktopIcons NOTIFY desktopIconsChanged)
+    bool desktopIcons() const { return m_desktopIcons; }
+    Q_INVOKABLE void setDesktopIcons(bool on);
+    Q_INVOKABLE void loadDesktopIcons();    // Wayfire: Meta+Alt+W en wayfire.ini; otros: arranque
     Q_INVOKABLE void revealInFolder(const QString &path);
     Q_INVOKABLE void openDefaultFolder();
 
@@ -191,6 +196,7 @@ signals:
     void linkPreviewReady(const QString &url, const QString &path);
     void linkPreviewFailed(const QString &url, const QString &message);
     void hudClosingStarted();
+    void desktopIconsChanged();
     void adjustReady(const QVariantMap &info);   // target, source, name, width, height
     void applied(bool ok, const QString &id, const QString &message);
     void error(const QString &message);
@@ -248,6 +254,7 @@ private:
     bool m_thumbsRequested = false;
     bool m_reducedMotion = false;
     QString m_dbPath;
+    bool m_desktopIcons = false;
     QString m_thumbsDir;
     int m_thumbVersion = 0;
     int m_screenW = 1920;

@@ -24,10 +24,10 @@ COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel ffmp
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
 MATE="mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia"
 NIRI="mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia"
-WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia"
+WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia qt6-svg xdg-utils"
 # Arch / Artix (pacman). mpvpaper y lswt están en AUR: se instalan con yay o paru si los hay.
 ARCH_COMUNES="git base-devel rust cmake qt6-base qt6-declarative ffmpeg glib2 yt-dlp"
-ARCH_WLR="swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia"
+ARCH_WLR="swaybg wlr-randr layer-shell-qt qt6-wayland qt6-multimedia qt6-svg xdg-utils"
 ARCH_AUR="mpvpaper lswt"
 
 # ── Opciones ────────────────────────────────────────────────────────────────
@@ -98,6 +98,13 @@ if [ -z "$ESCRITORIO" ]; then
         *wayfire*|*sway*|*labwc*|*hyprland*|*river*|*wlroots*) ESCRITORIO=wlroots ;;
     esac
 fi
+# Si XDG_CURRENT_DESKTOP no lo dice (vacío, o p. ej. «LXQt» puesto para pcmanfm-qt), el compositor en marcha.
+if [ -z "$ESCRITORIO" ]; then
+    for c in wayfire sway labwc Hyprland river dwl; do
+        pgrep -x "$c" >/dev/null 2>&1 && { ESCRITORIO=wlroots; break; }
+    done
+    [ -z "$ESCRITORIO" ] && pgrep -x niri >/dev/null 2>&1 && ESCRITORIO=niri
+fi
 if [ -z "$ESCRITORIO" ]; then
     aviso "no reconozco tu escritorio (XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-vacío})."
     echo "NekoWall funciona en KDE Plasma, MATE, niri y compositores wlroots (Wayfire, sway, labwc…)."
@@ -148,6 +155,21 @@ if [ "$GESTOR" = pacman ]; then
             aviso "faltan$FALTAN_AUR, que están en AUR (mpvpaper = vídeos de fondo; lswt = pausarlos)."
             echo "      Instálalos con tu ayudante de AUR (yay -S$FALTAN_AUR) o a mano con makepkg. Sin ellos,"
             echo "      NekoWall funciona igual con imágenes."
+        fi
+    fi
+fi
+
+# Tema de iconos: sin ninguno (solo hicolor), los iconos del escritorio de NekoWall saldrían vacíos.
+if [ "$ESCRITORIO" = wlroots ] || [ "$ESCRITORIO" = niri ]; then
+    TEMAS=$(for d in /usr/share/icons/* "$HOME/.local/share/icons"/* "$HOME/.icons"/*; do
+                [ -f "$d/index.theme" ] && [ -d "$d/scalable" -o -d "$d/48x48" -o -d "$d/32x32" ] && basename "$d"
+            done 2>/dev/null | grep -vx 'hicolor\|default\|locolor' | head -1)
+    if [ -z "$TEMAS" ]; then
+        aviso "no hay ningún tema de iconos instalado: se instalará Adwaita (para los iconos de archivos y carpetas)."
+        if [ "$GESTOR" = pacman ]; then
+            hacer $ROOT pacman -S --needed $( [ "$SI" = 1 ] && echo --noconfirm ) adwaita-icon-theme || aviso "no se pudo instalar adwaita-icon-theme"
+        else
+            hacer $ROOT xbps-install -Sy adwaita-icon-theme || aviso "no se pudo instalar adwaita-icon-theme"
         fi
     fi
 fi
@@ -239,7 +261,48 @@ if [ -d "$CARPETA_ESC" ] && preguntar "¿Poner también un icono de NekoWall en 
     else
         printf '%s\n' "$DESKTOP" > "$CARPETA_ESC/nekowall.desktop"
         chmod +x "$CARPETA_ESC/nekowall.desktop"   # sin esto MATE y KDE lo tratan como «no confiable»
-        command -v gio >/dev/null 2>&1 && gio set "$CARPETA_ESC/nekowall.desktop" metadata::trusted true 2>/dev/null || true
+        # «De confianza»: metadata::trusted (Caja, Nautilus) y metadata::trust (pcmanfm-qt / libfm); necesita gvfs.
+        if command -v gio >/dev/null 2>&1; then
+            gio set "$CARPETA_ESC/nekowall.desktop" metadata::trusted true 2>/dev/null || true
+            gio set "$CARPETA_ESC/nekowall.desktop" metadata::trust true 2>/dev/null || true
+        fi
+    fi
+fi
+
+# ── Otros gestores de fondos (se pelearían con NekoWall por el fondo) ──────────
+# Waywallen, swww/awww, wpaperd, hyprpaper, mpvpaper… arrancados por el usuario: se ofrece desactivarlos
+# (su línea queda comentada con una marca, así se puede volver atrás) y cerrarlos.
+if [ "$ESCRITORIO" = wlroots ] || [ "$ESCRITORIO" = niri ]; then
+    OTROS="waywallen swww-daemon wpaperd hyprpaper"
+    MARCA="# nekowall (desactivado: otro gestor de fondos): "
+    INI="${XDG_CONFIG_HOME:-$HOME/.config}/wayfire.ini"
+    EN_INI=""
+    [ -f "$INI" ] && EN_INI=$(grep -n -i -E "^[^#]*=.*($(echo $OTROS | tr ' ' '|'))" "$INI" | grep -v "_wlr-restore\|nekowall" || true)
+    AUTO_XDG=$(grep -l -i -E "^Exec=.*($(echo $OTROS | tr ' ' '|'))" "${XDG_CONFIG_HOME:-$HOME/.config}"/autostart/*.desktop 2>/dev/null | xargs -r grep -L "^Hidden=true" 2>/dev/null || true)
+    EN_MARCHA=""
+    # Waywallen suele ser una AppImage: se busca en la línea de órdenes, sin distinguir mayúsculas.
+    pgrep -i -f waywallen >/dev/null 2>&1 && EN_MARCHA=" waywallen"
+    for o in swww-daemon wpaperd hyprpaper; do pgrep -x "$o" >/dev/null 2>&1 && EN_MARCHA="$EN_MARCHA $o"; done
+    if [ -n "$EN_INI$AUTO_XDG$EN_MARCHA" ]; then
+        aviso "hay otro gestor de fondos que se pelearía con NekoWall:"
+        [ -n "$EN_INI" ] && printf '      %s: %s\n' "$INI" "$EN_INI"
+        for f in $AUTO_XDG; do echo "      $f"; done
+        [ -n "$EN_MARCHA" ] && echo "      en marcha:$EN_MARCHA"
+        if preguntar "¿Desactivarlo? (su línea de arranque queda comentada, se puede volver a activar)"; then
+            if [ -n "$EN_INI" ] && [ "$SIMULAR" = 0 ]; then
+                cp "$INI" "$INI.antes-de-nekowall"
+                for n in $(printf '%s\n' "$EN_INI" | cut -d: -f1); do
+                    sed -i "${n}s|^|$MARCA|" "$INI"
+                done
+            fi
+            for f in $AUTO_XDG; do
+                if [ "$SIMULAR" = 1 ]; then echo "   [simulado] Hidden=true en $f"; else printf 'Hidden=true\n' >> "$f"; fi
+            done
+            for o in $EN_MARCHA; do
+                if [ "$o" = waywallen ]; then hacer pkill -i -f waywallen || true; else hacer pkill -x "$o" || true; fi
+            done
+            paso "Desactivado (copia de wayfire.ini en $INI.antes-de-nekowall)."
+        fi
     fi
 fi
 

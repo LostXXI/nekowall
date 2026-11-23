@@ -50,6 +50,8 @@ USO:
                                        imagen en la pantalla). Siempre parte del original.
                                        Con --replace-in-library la biblioteca usa la copia (y si era
                                        el fondo puesto, se cambia por la copia)
+  nekowall wlr-desktop-icons on|off|status --gui RUTA
+                                       Iconos del escritorio de NekoWall (encima del fondo animado)
   nekowall wlr-shortcut --gui RUTA      Wayfire/sway/labwc…: arranque al iniciar sesión (y atajo en Wayfire)
   nekowall niri-shortcut --gui RUTA     niri: atajo Meta+Alt+W y arranque de NekoWall (nekowall.kdl)
   nekowall link-info <enlace>          Título, vista previa y formatos de un enlace (JSON; usa yt-dlp)
@@ -447,6 +449,20 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     if cmd == "_wlr-video" {
         return nekowall_wlr::run_watcher();
+    }
+    if cmd == "wlr-desktop-icons" {
+        let on = match args.get(1).map(String::as_str) {
+            Some("on") => true,
+            Some("off") => false,
+            Some("status") | None => {
+                println!("{}", if nekowall_wlr::desktop_icons_enabled() { "on" } else { "off" });
+                return Ok(());
+            }
+            Some(o) => return Err(format!("uso: nekowall wlr-desktop-icons on|off|status --gui RUTA (no «{o}»)")),
+        };
+        let gui = opt(&args[1..], "--gui").ok_or("falta --gui /ruta/a/nekowall-gui")?;
+        println!("{}", nekowall_wlr::set_desktop_icons(on, Path::new(gui)).map_err(|e| e.to_string())?);
+        return Ok(());
     }
     if cmd == "wlr-shortcut" {
         let gui = opt(&args[1..], "--gui").ok_or("uso: nekowall wlr-shortcut --gui /ruta/a/nekowall-gui")?;

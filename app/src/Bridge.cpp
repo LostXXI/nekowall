@@ -809,6 +809,30 @@ void Bridge::registerNiriShortcut()
         });
 }
 
+void Bridge::loadDesktopIcons()
+{
+    run({QStringLiteral("wlr-desktop-icons"), QStringLiteral("status")}, [this](int code, const QByteArray &out, const QByteArray &) {
+        const bool on = code == 0 && out.trimmed() == "on";
+        if (on != m_desktopIcons) {
+            m_desktopIcons = on;
+            emit desktopIconsChanged();
+        }
+    });
+}
+
+void Bridge::setDesktopIcons(bool on)
+{
+    run({QStringLiteral("wlr-desktop-icons"), on ? QStringLiteral("on") : QStringLiteral("off"),
+         QStringLiteral("--gui"), QCoreApplication::applicationFilePath()},
+        [this](int code, const QByteArray &out, const QByteArray &err) {
+            if (code != 0)
+                emit notice(QStringLiteral("No se pudo cambiar: ") + cleanError(err), true);
+            else
+                emit notice(QString::fromUtf8(out).trimmed(), false);
+            loadDesktopIcons();
+        });
+}
+
 void Bridge::registerWlrShortcut()
 {
     run({QStringLiteral("wlr-shortcut"), QStringLiteral("--gui"), QCoreApplication::applicationFilePath()},

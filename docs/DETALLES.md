@@ -185,12 +185,53 @@ a mano, por ejemplo en sway: `bindsym Mod4+Mod1+w exec ~/.local/bin/nekowall-gui
   iconos. NekoWall lo detecta y le pone el fondo **a pcmanfm-qt** (`--set-wallpaper`): iconos y fondo se ven a
   la vez. Con pcmanfm-qt hay un solo fondo para todas las pantallas. Con un **vídeo**, el vídeo va encima
   de su escritorio (como en MATE): para ver los iconos, pon una imagen.
+- **Iconos del escritorio de NekoWall** (alternativa; Ajustes → «Usar los iconos del escritorio de NekoWall», o
+  `nekowall wlr-desktop-icons on --gui ~/.local/bin/nekowall-gui`): NekoWall muestra la carpeta **Escritorio**
+  en una capa transparente (layer-shell «bottom») **encima del vídeo** (mpvpaper en «background»), así iconos y
+  fondo animado se ven a la vez. **Imita al escritorio de pcmanfm-qt 2.5** y usa sus mismos archivos
+  (`~/.config/pcmanfm-qt/default/`), así que se puede volver a pcmanfm-qt sin perder nada:
+  - `settings.conf`: tamaño de icono, letra, color del texto y su sombra, márgenes de celda y del área de
+    trabajo, orden (nombre/tipo/tamaño/fecha, ascendente, carpetas primero, ocultos al final), mostrar ocultos,
+    clic simple, descripciones emergentes, «fijar todos», `HideItems-<pantalla>`, confirmar papelera/borrado,
+    miniaturas, accesos Inicio/Papelera/Equipo/Red (la Papelera se actualiza: vacía / N elementos).
+  - `desktop-items-<pantalla>.conf`: la posición de cada icono fijado. Un escritorio por pantalla, como
+    pcmanfm-qt en Wayland. La rejilla se calcula igual (13 caracteres de ancho × 3 líneas, `removeBottomGap`,
+    `alignToGrid`), así que los iconos quedan en el mismo sitio (comprobado lado a lado en la VM).
+  - Ratón: clic selecciona, doble clic abre (o un clic con «clic simple»), Ctrl/Mayús, recuadro de selección,
+    arrastrar para recolocar (queda fijo y se guarda), soltar sobre una carpeta (mueve) o la Papelera,
+    soltar archivos desde otro programa (mueve si es el mismo disco, copia si no; se leen `text/uri-list` y
+    `libfm/files` porque sin xdg-desktop-portal Qt da la lista vacía).
+  - Teclado: flechas, Inicio/Fin, RePág/AvPág, Intro, Supr (papelera), Mayús+Supr (borrar), F2 (renombrar
+    en el sitio; en lanzadores cambia `Name=`), Ctrl+A/C/X/V, Ctrl+Mayús+N, Ctrl+H, Esc, tecla Menú.
+  - Menús de pcmanfm-qt en español: archivo (Abrir, Abrir con ▸ según mimeapps, Cortar, Copiar, Copiar ruta,
+    Pegar en carpeta, Papelera, Eliminar, Renombrar, Fijar en la posición actual, Propiedades), Papelera
+    (Abrir, Fijar, Vaciar) y escritorio (Pegar, Seleccionar todo, Invertir, Crear nuevo ▸, Ordenar ▸,
+    Mostrar ocultos, Ocultar iconos, Crear lanzador…, Preferencias del escritorio…) + abrir en el gestor de
+    archivos, terminal aquí y cambiar el fondo. Las carpetas se abren con pcmanfm-qt si está (como él).
+  - «Preferencias del escritorio» propias (las de pcmanfm-qt no abren sin su escritorio) que escriben en su
+    `settings.conf`. Sin pcmanfm-qt se usa `~/.config/nekowall/escritorio/` con el mismo formato.
+  - Al activarlo, en Wayfire la línea de `pcmanfm-qt --desktop` de `[autostart]` queda comentada (vuelve al
+    desactivarlo) y se añade `nekowall_desktop = … --desktop`; en otros, autostart XDG. Proceso aparte
+    (`nekowall-gui --desktop`), una sola instancia. No hace: arrastrar iconos hacia otros programas.
 - **Sin pcmanfm-qt**: imágenes con **awww** (si está) o **swaybg** (uno por pantalla).
 - **Vídeos**: **mpvpaper** por pantalla, sin audio ni configuración personal de mpv; debajo, un fotograma.
 - **Pausa**: `nekowall _wlr-video` mira las ventanas con **lswt** (maximizadas, activas, visibles) y pausa
   según Ajustes.
 - **No uses otro gestor de fondos a la vez** (Waywallen, swaybg en el autostart del compositor…): pelearían
   por el fondo.
+- **Vídeo con los iconos de pcmanfm-qt**: al poner un vídeo, NekoWall le pone a pcmanfm-qt un SVG
+  transparente en mosaico (`~/.cache/nekowall/transparente.svg`, el mismo truco que usan los de Waywallen) y
+  mpvpaper va en la capa «background», debajo. Como pcmanfm-qt también usa esa capa y queda encima lo último
+  que se abre, NekoWall cierra y reabre su escritorio (`pcmanfm-qt --desktop-off` / `--desktop`, en el mismo
+  proceso, con su perfil y entorno) tras arrancar el vídeo. Resultado: SUS iconos encima del vídeo en
+  movimiento. Ojo: con un fondo de *color* transparente (`BgColor=#00000000`) Wayfire deja de pedirle
+  fotogramas al vídeo y se congela; con el SVG en mosaico no. Con una imagen, se la pone a pcmanfm-qt.
+- **Perfil y entorno de pcmanfm-qt**: se leen de su línea de arranque (`[autostart]` de Wayfire o autostart
+  XDG), p. ej. `env XDG_CURRENT_DESKTOP=LXQt pcmanfm-qt --desktop --profile=lxqt`, o del proceso en marcha.
+- *Probado en una máquina virtual con Artix (runit) + Wayfire 0.11 + pcmanfm-qt 2.5, también con la
+  configuración de un usuario real (perfil `lxqt`, `XDG_CURRENT_DESKTOP=LXQt`, «fijar todos», márgenes
+  propios): `./install.sh --yes` (pacman + yay), imagen, vídeo con sus iconos encima, pausa con ventana
+  maximizada, Meta+Alt+W, ventana principal y restaurar al reiniciar.*
 
 ### Compilar (todos los escritorios)
 

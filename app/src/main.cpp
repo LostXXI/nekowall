@@ -3,11 +3,15 @@
 // nekowall-gui            → ventana principal (biblioteca y ajustes)
 // nekowall-gui --hud      → selector rápido a pantalla completa (--hud --imagenes: empieza en imágenes)
 // nekowall-gui --import <ruta>...  → ventana principal e importa esas rutas (p. ej. «Abrir con» desde Dolphin)
+// nekowall-gui --desktop          → iconos del escritorio de NekoWall (Wayland, encima del fondo animado)
 // nekowall-gui --link=<enlace>     → Workshop con ese enlace analizado en «Pegar enlace»
 // NEKOWALL_TIMING=1 imprime en stderr cuánto tarda en aparecer el primer fotograma.
 
 #include "Bridge.h"
 #include "Workshop.h"
+#include "DesktopModel.h"
+#include <QScreen>
+#include <QQmlComponent>
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -145,6 +149,66 @@ int main(int argc, char *argv[])
                 QApplication::setPalette(p);   // QApplication: si no, su estilo la pisa al cargarse
             }
         }
+    }
+
+    // Iconos del escritorio: proceso aparte, ligero (sin Bridge ni CLI), una sola instancia.
+    if (app.arguments().contains(QStringLiteral("--desktop"))) {
+        QString runDir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+        if (runDir.isEmpty())
+            runDir = QDir::tempPath();
+        static QLockFile only(runDir + QStringLiteral("/nekowall-desktop.lock"));
+        only.setStaleLockTime(0);
+        if (!only.tryLock(100)) {
+            std::fprintf(stderr, "Los iconos del escritorio de NekoWall ya están en marcha.\n");
+            return 0;
+        }
+        if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland"))) {
+            std::fprintf(stderr, "Los iconos del escritorio de NekoWall solo funcionan en Wayland.\n");
+            return 1;
+        }
+        // Mismo perfil de pcmanfm-qt que su escritorio (--profile=lxqt …).
+        for (const QString &a : app.arguments())
+            if (a.startsWith(QStringLiteral("--profile=")))
+                qputenv("NEKOWALL_PCMANFM_PROFILE", a.mid(10).toUtf8());
+        QQuickStyle::setStyle(QStringLiteral("Fusion"));
+        static QQmlApplicationEngine desk;
+        desk.addImageProvider(QStringLiteral("icono"), new ThemeIconProvider);
+        static QQmlComponent comp(&desk);
+        comp.loadFromModule("NekoWall", "DesktopIcons");
+        if (comp.isError()) {
+            for (const auto &e : comp.errors())
+                std::fprintf(stderr, "%s\n", qPrintable(e.toString()));
+            return 1;
+        }
+        // Un escritorio por pantalla (como pcmanfm-qt en Wayland), también al conectar/desconectar pantallas.
+        static QHash<QScreen *, QPair<DesktopModel *, QObject *>> desktops;
+        auto addScreen = [](QScreen *screen) {
+            if (desktops.contains(screen))
+                return;
+            auto *model = new DesktopModel(screen->name());
+            QObject *obj = comp.createWithInitialProperties({{QStringLiteral("dm"), QVariant::fromValue<QObject *>(model)}});
+            auto *win = qobject_cast<QQuickWindow *>(obj);
+            if (!win) {
+                for (const auto &e : comp.errors())
+                    std::fprintf(stderr, "%s\n", qPrintable(e.toString()));
+                delete obj;
+                delete model;
+                return;
+            }
+            model->setParent(win);
+            win->setScreen(screen);
+            win->show();
+            desktops.insert(screen, {model, obj});
+        };
+        auto removeScreen = [](QScreen *screen) {
+            if (auto d = desktops.take(screen); d.second)
+                d.second->deleteLater();
+        };
+        for (QScreen *s : QGuiApplication::screens())
+            addScreen(s);
+        QObject::connect(&app, &QGuiApplication::screenAdded, &app, addScreen);
+        QObject::connect(&app, &QGuiApplication::screenRemoved, &app, removeScreen);
+        return app.exec();
     }
 
     Bridge bridge;

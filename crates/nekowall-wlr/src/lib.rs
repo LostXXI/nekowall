@@ -7,7 +7,10 @@
 //!   (`pcmanfm-qt --set-wallpaper`): pinta su propio fondo opaco bajo los iconos, así que otro programa de
 //!   fondos quedaría tapado o taparía los iconos. Si no, **awww** (si está) o **swaybg** (uno por pantalla).
 //! - Vídeos: un **mpvpaper** por pantalla, sin audio y sin la configuración/scripts personales de mpv.
-//!   Debajo se pone un fotograma del vídeo como imagen.
+//!   Debajo se pone un fotograma del vídeo como imagen. Con pcmanfm-qt, su fondo pasa a ser un SVG
+//!   transparente en mosaico y el vídeo va en la capa «background», debajo: se ven SUS iconos y el vídeo
+//!   en movimiento. (Con un fondo de *color* transparente Wayfire deja de pedirle fotogramas al vídeo y se
+//!   congela; con el SVG en mosaico no.)
 //! - Pausa: el vigilante `nekowall _wlr-video` mira las ventanas con **lswt** (protocolo
 //!   foreign-toplevel) y pausa el vídeo según los Ajustes.
 //! - Estado: `~/.config/nekowall/wlr.conf`. Al iniciar sesión, `nekowall _wlr-restore` vuelve a poner
@@ -116,6 +119,147 @@ pub fn pcmanfm_desktop() -> bool {
     pids_of("pcmanfm-qt").into_iter().any(|p| cmdline(p).iter().any(|a| a == "--desktop" || a.starts_with("--desktop")))
 }
 
+/// Cómo se arranca el escritorio de pcmanfm-qt: variables de entorno delante (`env XDG_CURRENT_DESKTOP=LXQt …`)
+/// y perfil (`--profile=lxqt`, `--profile lxqt`, `-p lxqt`).
+#[derive(Debug, Default, PartialEq)]
+pub struct PcmanfmLaunch {
+    pub env: Vec<(String, String)>,
+    pub profile: Option<String>,
+}
+
+pub fn parse_pcmanfm_command(cmd: &str) -> PcmanfmLaunch {
+    let mut out = PcmanfmLaunch::default();
+    let toks: Vec<String> = cmd.split_whitespace().map(|t| t.trim_matches(|c| c == '"' || c == '\'').to_string()).collect();
+    let mut i = 0;
+    while i < toks.len() {
+        let t = &toks[i];
+        if t == "env" {
+            i += 1;
+            continue;
+        }
+        match t.split_once('=') {
+            Some((k, v)) if !k.is_empty() && !k.starts_with('-') && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+                out.env.push((k.to_string(), v.to_string()));
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    while i < toks.len() {
+        let t = &toks[i];
+        if let Some(p) = t.strip_prefix("--profile=") {
+            out.profile = Some(p.to_string());
+        } else if (t == "--profile" || t == "-p") && i + 1 < toks.len() {
+            out.profile = Some(toks[i + 1].clone());
+            i += 1;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Línea de pcmanfm-qt --desktop (activa o comentada por NekoWall) en el `[autostart]` de Wayfire o en un
+/// autostart XDG; si no, la del proceso en marcha.
+pub fn pcmanfm_launch() -> PcmanfmLaunch {
+    for pid in pids_of("pcmanfm-qt") {
+        let args = cmdline(pid);
+        if args.iter().any(|a| a.starts_with("--desktop")) {
+            let mut l = parse_pcmanfm_command(&args.join(" "));
+            // El entorno del proceso no se ve en su línea de órdenes: se toma de la del arranque.
+            if let Some(cfg) = pcmanfm_autostart_command() {
+                l.env = parse_pcmanfm_command(&cfg).env;
+            }
+            return l;
+        }
+    }
+    pcmanfm_autostart_command().map(|c| parse_pcmanfm_command(&c)).unwrap_or_default()
+}
+
+fn is_pcmanfm_desktop_cmd(c: &str) -> bool {
+    c.contains("pcmanfm-qt") && (c.contains("--desktop") || c.split_whitespace().any(|t| t == "-d"))
+        && !c.contains("--desktop-off") && !c.contains("--desktop-pref")
+}
+
+fn pcmanfm_autostart_command() -> Option<String> {
+    let ini = std::fs::read_to_string(config_dir().join("wayfire.ini")).unwrap_or_default();
+    for line in ini.lines() {
+        let l = line.strip_prefix(OFF_MARK).unwrap_or(line).trim();
+        if l.starts_with('#') {
+            continue;
+        }
+        if let Some((_, cmd)) = l.split_once('=') {
+            if is_pcmanfm_desktop_cmd(cmd) {
+                return Some(cmd.trim().to_string());
+            }
+        }
+    }
+    for f in xdg_autostart_files() {
+        if let Some(exec) = desktop_exec(&f) {
+            if is_pcmanfm_desktop_cmd(&exec) {
+                return Some(exec);
+            }
+        }
+    }
+    None
+}
+
+fn xdg_autostart_files() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    for d in [config_dir().join("autostart"), PathBuf::from("/etc/xdg/autostart")] {
+        if let Ok(rd) = std::fs::read_dir(d) {
+            let mut fs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "desktop")).collect();
+            fs.sort();
+            v.extend(fs);
+        }
+    }
+    v
+}
+
+fn desktop_exec(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok()?.lines().find_map(|l| l.trim().strip_prefix("Exec=").map(|e| e.trim().to_string()))
+}
+
+/// pcmanfm-qt pone su escritorio en la capa «background», la misma que mpvpaper, y dentro de una capa queda
+/// encima lo último que se abre. Tras arrancar un vídeo se cierra y se vuelve a abrir su escritorio (en el
+/// mismo proceso, con su perfil y entorno) para que sus iconos queden encima del vídeo.
+fn raise_pcmanfm_desktop(monitors: &[String]) {
+    if !pcmanfm_desktop() {
+        return;
+    }
+    // Esperar a que mpvpaper esté en marcha (su socket) y a que muestre su capa.
+    for _ in 0..40 {
+        if monitors.iter().all(|m| mpv_socket(m).exists()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let launch = pcmanfm_launch();
+    for arg in ["--desktop-off", "--desktop"] {
+        let mut c = Command::new("pcmanfm-qt");
+        c.arg(arg).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        if let Some(p) = &launch.profile {
+            c.arg(format!("--profile={p}"));
+        }
+        for (k, v) in &launch.env {
+            c.env(k, v);
+        }
+        let _ = c.status();
+    }
+}
+
+/// SVG transparente (el truco de los usuarios de pcmanfm-qt para ver un fondo animado detrás de sus iconos).
+fn transparent_svg() -> Result<PathBuf, WallpaperError> {
+    let p = cache_dir().join("transparente.svg");
+    if !p.is_file() {
+        if let Some(d) = p.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        std::fs::write(&p, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"/>\n")?;
+    }
+    Ok(p)
+}
+
 /// Parsea `wlr-randr --json`. Solo pantallas encendidas; la primera (de izquierda a derecha) es la principal.
 pub fn parse_outputs(json: &str) -> Vec<Monitor> {
     let Ok(Value::Array(list)) = serde_json::from_str::<Value>(json) else { return Vec::new() };
@@ -205,6 +349,13 @@ impl WlrBackend {
                 return Some(name.into());
             }
         }
+        // P. ej. abierto desde un escritorio lanzado con XDG_CURRENT_DESKTOP=LXQt: el compositor en marcha.
+        for (prog, name) in [("wayfire", "wayfire"), ("sway", "sway"), ("labwc", "labwc"), ("Hyprland", "hyprland"),
+                             ("river", "river"), ("dwl", "dwl")] {
+            if !pids_of(prog).is_empty() {
+                return Some(name.into());
+            }
+        }
         None
     }
 
@@ -272,9 +423,12 @@ impl WlrBackend {
              no-audio loop-file=inf hwdec=auto panscan=1.0 input-ipc-server={}",
             sock.display()
         );
-        // Con pcmanfm-qt (iconos), el vídeo tiene que ir por encima de su escritorio para verse.
-        let layer = if pcmanfm_desktop() { "bottom" } else { "background" };
-        let pid = spawn_detached(Command::new("mpvpaper").args(["-l", layer, "-o", &opts, monitor]).arg(video))?;
+        // Con pcmanfm-qt (iconos): su fondo se vuelve transparente y el vídeo va debajo, así se ven sus iconos.
+        if pcmanfm_desktop() {
+            let svg = transparent_svg()?;
+            run("pcmanfm-qt", &["--set-wallpaper", &svg.to_string_lossy(), "--wallpaper-mode", "tile"])?;
+        }
+        let pid = spawn_detached(Command::new("mpvpaper").args(["-l", "background", "-o", &opts, monitor]).arg(video))?;
         st.insert(format!("pid.{monitor}"), pid.to_string());
         Ok(())
     }
@@ -289,20 +443,26 @@ impl WlrBackend {
             .filter(|(m, p)| all.contains(m) && p.is_file())
             .collect();
         let mut n = 0;
+        let mut videos = Vec::new();
         for (m, p) in saved {
             let one = [m.clone()];
             let ok = match WallpaperKind::from_path(&p) {
                 Some(WallpaperKind::Video) => {
-                    if let Some(f) = still_frame(&p) {
+                    if let Some(f) = still_frame(&p).filter(|_| !pcmanfm_desktop()) {
                         let _ = self.set_image(&f, Some(&one), &all, &mut st);
                     }
-                    self.start_video(&m, &p, &mut st).is_ok()
+                    let ok = self.start_video(&m, &p, &mut st).is_ok();
+                    if ok { videos.push(m.clone()); }
+                    ok
                 }
                 _ => self.set_image(&p, Some(&one), &all, &mut st).is_ok(),
             };
             if ok { n += 1; }
         }
         write_state(&st)?;
+        if !videos.is_empty() {
+            raise_pcmanfm_desktop(&videos);
+        }
         if st.keys().any(|k| k.starts_with("pid.")) {
             spawn_watcher();
         }
@@ -363,12 +523,14 @@ impl WallpaperBackend for WlrBackend {
                 self.set_image(&wallpaper.path, only, &all, &mut st)?;
             }
             WallpaperKind::Video => {
-                if let Some(frame) = still_frame(&wallpaper.path) {
+                // Con pcmanfm-qt el fotograma iría en SU fondo y taparía el vídeo.
+                if let Some(frame) = still_frame(&wallpaper.path).filter(|_| !pcmanfm_desktop()) {
                     let _ = self.set_image(&frame, only, &all, &mut st);
                 }
                 for t in &targets {
                     self.start_video(t, &wallpaper.path, &mut st)?;
                 }
+                raise_pcmanfm_desktop(&targets);
             }
         }
         for t in &targets {
@@ -477,6 +639,187 @@ pub fn register_shortcut(cli: &Path, gui: &Path) -> Result<String, WallpaperErro
             gui.display()
         ),
     })
+}
+
+// ── Iconos del escritorio de NekoWall ───────────────────────────────────────
+
+const OFF_MARK: &str = "# nekowall (desactivado mientras se usan los iconos de NekoWall): ";
+
+/// En `[autostart]`, comenta las líneas que arrancan el escritorio de pcmanfm-qt (`on`) o las restaura (`off`).
+pub fn toggle_pcmanfm_autostart(text: &str, on: bool) -> String {
+    let mut out = Vec::new();
+    let mut in_auto = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            in_auto = t == "[autostart]";
+        }
+        if in_auto && on && !t.starts_with('#') && t.contains("pcmanfm-qt") && (t.contains("--desktop") || t.contains(" -d")) {
+            out.push(format!("{OFF_MARK}{line}"));
+        } else if !on && line.starts_with(OFF_MARK) {
+            out.push(line[OFF_MARK.len()..].to_string());
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    out.join("\n") + "\n"
+}
+
+/// Quita `clave = …` de una sección.
+pub fn ini_remove(text: &str, section: &str, key: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_sec = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            in_sec = t == format!("[{section}]");
+        }
+        if in_sec && t.split_once('=').is_some_and(|(k, _)| k.trim() == key) {
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    out.join("\n") + "\n"
+}
+
+/// Activa o desactiva los iconos del escritorio de NekoWall al iniciar sesión (y ahora mismo).
+/// Con `on`, el escritorio de pcmanfm-qt se desactiva (su línea queda comentada y se restaura con `off`).
+pub fn set_desktop_icons(on: bool, gui: &Path) -> Result<String, WallpaperError> {
+    // Mismo entorno y perfil con que arranca el escritorio de pcmanfm-qt (p. ej. env XDG_CURRENT_DESKTOP=LXQt
+    // … --profile=lxqt): así los iconos de NekoWall usan el mismo tema, los mismos ajustes y posiciones.
+    let launch = pcmanfm_launch();
+    let mut st = read_state();
+    st.insert("desktop_icons".into(), on.to_string());
+    write_state(&st)?;
+    let env_prefix: String = if launch.env.is_empty() {
+        String::new()
+    } else {
+        format!("env {} ", launch.env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" "))
+    };
+    let profile_arg = launch.profile.as_ref().map(|p| format!(" --profile={p}")).unwrap_or_default();
+    // Autostart XDG (sway, labwc, Hyprland con xdg-autostart…).
+    let auto = config_dir().join("autostart");
+    std::fs::create_dir_all(&auto)?;
+    let f = auto.join("nekowall-escritorio.desktop");
+    if on {
+        std::fs::write(&f, format!(
+            "[Desktop Entry]\nType=Application\nName=NekoWall (iconos del escritorio)\nExec={env_prefix}\"{}\" --desktop{profile_arg}\nNoDisplay=true\n",
+            gui.display()))?;
+    } else {
+        let _ = std::fs::remove_file(&f);
+    }
+    toggle_xdg_pcmanfm(on)?;
+    // Wayfire: su propio [autostart].
+    let ini = config_dir().join("wayfire.ini");
+    if ini.is_file() {
+        let text = std::fs::read_to_string(&ini)?;
+        let mut new = toggle_pcmanfm_autostart(&text, on);
+        new = if on {
+            ini_set(&new, "autostart", "nekowall_desktop", &format!("{env_prefix}{} --desktop{profile_arg}", gui.display()))
+        } else {
+            ini_remove(&new, "autostart", "nekowall_desktop")
+        };
+        if new != text {
+            std::fs::write(&ini, new)?;
+        }
+    }
+    // Ahora mismo: cambiar un escritorio por el otro.
+    let with_env = |c: &mut Command| {
+        for (k, v) in &launch.env {
+            c.env(k, v);
+        }
+    };
+    if on {
+        for pid in pids_of("pcmanfm-qt") {
+            if cmdline(pid).iter().any(|a| a.starts_with("--desktop")) {
+                let _ = Command::new("kill").arg(pid.to_string()).status();
+            }
+        }
+        let mut c = Command::new(gui);
+        c.arg("--desktop");
+        if let Some(p) = &launch.profile {
+            c.arg(format!("--profile={p}"));
+        }
+        with_env(&mut c);
+        let _ = spawn_detached(&mut c);
+    } else {
+        for pid in pids_of("nekowall-gui") {
+            if cmdline(pid).iter().any(|a| a == "--desktop") {
+                let _ = Command::new("kill").arg(pid.to_string()).status();
+            }
+        }
+        if has("pcmanfm-qt") && pcmanfm_autostart_command().is_some() {
+            // Si hay un vídeo de fondo, el escritorio de pcmanfm-qt vuelve transparente para que se vea.
+            if read_state().keys().any(|k| k.starts_with("pid.")) {
+                let _ = set_pcmanfm_wallpaper_file(launch.profile.as_deref(), &transparent_svg()?, "tile");
+            }
+            let mut c = Command::new("pcmanfm-qt");
+            c.arg("--desktop");
+            if let Some(p) = &launch.profile {
+                c.arg(format!("--profile={p}"));
+            }
+            with_env(&mut c);
+            let _ = spawn_detached(&mut c);
+        }
+    }
+    Ok(if on {
+        "Iconos del escritorio de NekoWall activados (encima del fondo animado)".into()
+    } else {
+        "Iconos del escritorio de NekoWall desactivados: vuelve el escritorio de pcmanfm-qt".into()
+    })
+}
+
+/// Fondo de pcmanfm-qt escrito en su settings.conf (cuando no está en marcha).
+fn set_pcmanfm_wallpaper_file(profile: Option<&str>, file: &Path, mode: &str) -> Result<(), WallpaperError> {
+    let conf = config_dir().join("pcmanfm-qt").join(profile.unwrap_or("default")).join("settings.conf");
+    let text = std::fs::read_to_string(&conf).unwrap_or_default();
+    let new = ini_set(&ini_set(&text, "Desktop", "Wallpaper", &file.to_string_lossy()), "Desktop", "WallpaperMode", mode);
+    if let Some(d) = conf.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    std::fs::write(conf, new)?;
+    Ok(())
+}
+
+const XDG_MARK: &str = "X-NekoWall-Disabled=true";
+
+/// Autostart XDG del escritorio de pcmanfm-qt: se desactiva con Hidden=true (en ~/.config/autostart, con una
+/// copia si el original es de /etc/xdg/autostart) y se restaura al desactivar los iconos de NekoWall.
+fn toggle_xdg_pcmanfm(on: bool) -> Result<(), WallpaperError> {
+    let user = config_dir().join("autostart");
+    for f in xdg_autostart_files() {
+        let Ok(text) = std::fs::read_to_string(&f) else { continue };
+        let ours = text.contains(XDG_MARK);
+        let is_pcm = desktop_exec(&f).is_some_and(|e| is_pcmanfm_desktop_cmd(&e));
+        if !is_pcm {
+            continue;
+        }
+        let in_user = f.starts_with(&user);
+        if on && !ours {
+            let target = user.join(f.file_name().unwrap_or_default());
+            if !in_user && target.exists() {
+                continue;                       // ya hay una copia del usuario: se trata esa
+            }
+            std::fs::create_dir_all(&user)?;
+            let mut t = text.trim_end().to_string();
+            t.push_str(&format!("\nHidden=true\n{XDG_MARK}\n"));
+            std::fs::write(&target, t)?;
+        } else if !on && ours && in_user {
+            let system = PathBuf::from("/etc/xdg/autostart").join(f.file_name().unwrap_or_default());
+            if system.is_file() && std::fs::read_to_string(&system).is_ok_and(|s| !s.contains(XDG_MARK)) {
+                let _ = std::fs::remove_file(&f);   // era una copia nuestra del de /etc
+            } else {
+                let restored: String = text.lines().filter(|l| l.trim() != "Hidden=true" && l.trim() != XDG_MARK)
+                    .map(|l| format!("{l}\n")).collect();
+                std::fs::write(&f, restored)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn desktop_icons_enabled() -> bool {
+    read_state().get("desktop_icons").is_some_and(|v| v == "true")
 }
 
 // ── Pausa del vídeo (lswt) ──────────────────────────────────────────────────
@@ -651,6 +994,30 @@ mod tests {
         assert!(r2.contains("/c/nekowall"));
         let r3 = ini_set(&r2, "command", "binding_nekowall", "<super> <alt> KEY_W");
         assert!(r3.ends_with("[command]\nbinding_nekowall = <super> <alt> KEY_W\n"), "{r3}");
+    }
+
+    #[test]
+    fn swaps_pcmanfm_desktop_in_wayfire_ini() {
+        let t = "[autostart]\ndesktop = pcmanfm-qt --desktop\npanel = waybar\n\n[core]\nplugins = x\n";
+        let on = toggle_pcmanfm_autostart(t, true);
+        assert!(on.contains("# nekowall (desactivado"), "{on}");
+        assert!(on.contains("panel = waybar"));
+        let on = ini_set(&on, "autostart", "nekowall_desktop", "/b/nekowall-gui --desktop");
+        let off = ini_remove(&toggle_pcmanfm_autostart(&on, false), "autostart", "nekowall_desktop");
+        assert_eq!(off, t);
+    }
+
+    #[test]
+    fn parses_pcmanfm_launch_line() {
+        let l = parse_pcmanfm_command("env XDG_CURRENT_DESKTOP=LXQt pcmanfm-qt --desktop --profile=lxqt");
+        assert_eq!(l.env, vec![("XDG_CURRENT_DESKTOP".to_string(), "LXQt".to_string())]);
+        assert_eq!(l.profile.as_deref(), Some("lxqt"));
+        let l = parse_pcmanfm_command("/usr/bin/pcmanfm-qt -d -p mio");
+        assert!(l.env.is_empty());
+        assert_eq!(l.profile.as_deref(), Some("mio"));
+        assert_eq!(parse_pcmanfm_command("pcmanfm-qt --desktop").profile, None);
+        assert!(is_pcmanfm_desktop_cmd("env A=B pcmanfm-qt --desktop --profile=lxqt"));
+        assert!(!is_pcmanfm_desktop_cmd("pcmanfm-qt --desktop-pref"));
     }
 
     #[test]

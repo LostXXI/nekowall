@@ -29,6 +29,8 @@ qt_add_executable(nekowall-gui
     src/Bridge.h
     src/Workshop.cpp
     src/Workshop.h
+    src/DesktopModel.cpp
+    src/DesktopModel.h
 )
 
 qt_add_qml_module(nekowall-gui
@@ -49,6 +51,7 @@ qt_add_qml_module(nekowall-gui
         qml/FastWheel.qml
         qml/LinkDialog.qml
         qml/LinkPreview.qml
+        qml/DesktopIcons.qml
 )
 
 # En desarrollo, la GUI busca la CLI en ../target/release/nekowall si no está junto al ejecutable.

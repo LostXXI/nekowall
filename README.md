@@ -39,6 +39,12 @@ menú de aplicaciones.
 
 > Si sale un error con **«unresolvable shlib»**, tu sistema necesita actualizarse: el instalador te lo ofrece, di que sí.
 
+> **Arch / Artix con Wayfire, sway, labwc…:** el instalador detecta el compositor aunque `XDG_CURRENT_DESKTOP`
+> diga otra cosa (p. ej. `LXQt`), instala lo de los repos con `pacman` y `mpvpaper`/`lswt` con `yay` o `paru`.
+> Si usas **Waywallen** u otro gestor de fondos (swww, wpaperd, hyprpaper), te ofrece desactivarlo: su línea
+> de arranque queda comentada (con copia `wayfire.ini.antes-de-nekowall`). Si usas los iconos de
+> **pcmanfm-qt**, no hay que tocar nada: NekoWall pone el vídeo detrás de ellos.
+
 **Opciones del instalador** (se pueden combinar, por ejemplo `./install.sh --yes --niri`):
 
 | Opción | Qué hace |
