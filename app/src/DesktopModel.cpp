@@ -32,12 +32,20 @@
 
 // ── Iconos del tema ──────────────────────────────────────────────────────────
 
-QPixmap ThemeIconProvider::requestPixmap(const QString &id, QSize *size, const QSize &requested)
+QPixmap ThemeIconProvider::requestPixmap(const QString &idIn, QSize *size, const QSize &requested)
 {
+    const QString id = QUrl::fromPercentEncoding(idIn.toUtf8());   // «|» llega como %7C
     const int px = requested.width() > 0 ? requested.width() : 48;
     QIcon icon;
     if (QFileInfo(id).isAbsolute() && QFileInfo::exists(id)) {
         icon = QIcon(id);                                  // Icon= con ruta completa
+    } else if (id.contains(QLatin1Char('|'))) {
+        // Lista de nombres de GIO (modo Caja): el primero que tenga el tema, como GTK.
+        for (const QString &n : id.split(QLatin1Char('|'), Qt::SkipEmptyParts))
+            if (QIcon::hasThemeIcon(n)) {
+                icon = QIcon::fromTheme(n);
+                break;
+            }
     } else {
         // Mismo orden que GIO (g_themed_icon_new_with_default_fallbacks, el que usa libfm-qt / pcmanfm-qt):
         // el nombre y sus versiones más cortas («a-b-c», «a-b», «a»), y después sus versiones -symbolic.
@@ -231,11 +239,45 @@ static QString defaultAppFor(const QString &mime)
 
 // ── Modelo ───────────────────────────────────────────────────────────────────
 
-DesktopModel::DesktopModel(const QString &screenName, QObject *parent)
+DesktopModel::DesktopModel(const QString &screenName, QObject *parent, Flavor flavor)
     : QAbstractListModel(parent)
     , m_screenName(screenName)
     , m_folder(desktopDir())
+    , m_flavor(flavor)
 {
+#ifdef NEKOWALL_CAJA
+    if (m_flavor == Caja) {
+        // Escritorio de Caja (MATE): sus ajustes y metadatos; se recarga con la carpeta, la papelera y
+        // ~/.config/caja/desktop-metadata (y con los cambios de GSettings).
+        m_folder = CajaScan::desktopDir();
+        QDir().mkpath(m_folder);
+        pickIconTheme();
+        m_reloadTimer.setSingleShot(true);
+        m_reloadTimer.setInterval(150);
+        connect(&m_reloadTimer, &QTimer::timeout, this, &DesktopModel::reload);
+        connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_reloadTimer, qOverload<>(&QTimer::start));
+        m_watcher.addPath(m_folder);
+        QDir().mkpath(trashDir() + QStringLiteral("/files"));
+        m_watcher.addPath(trashDir() + QStringLiteral("/files"));
+        cajaLoadSettings();
+        // ~/.config/caja/desktop-metadata: «Mantener alineado», «Bloquear posición» y los especiales.
+        // Se guarda reemplazando el archivo, así que hay que volver a vigilarlo cada vez.
+        const QString meta = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                             + QStringLiteral("/caja/desktop-metadata");
+        if (QFileInfo::exists(meta))
+            m_watcher.addPath(meta);
+        connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this, meta](const QString &f) {
+            if (f != meta)
+                return;
+            if (QFileInfo::exists(meta))
+                m_watcher.addPath(meta);
+            QTimer::singleShot(200, this, &DesktopModel::cajaSettingsChanged);
+        });
+        return;     // reload() cuando se conozca el tamaño (setViewSize)
+    }
+#else
+    m_flavor = Pcmanfm;
+#endif
     QDir().mkpath(m_folder);
     pickIconTheme();
 
@@ -310,6 +352,20 @@ QVariant DesktopModel::data(const QModelIndex &index, int role) const
     case CutRole: return it.cut;
     case IsTrashRole: return it.fileName == QStringLiteral("trash-can.desktop");
     case HiddenRole: return it.hidden;
+    case BoxXRole: return it.box.x();
+    case BoxYRole: return it.box.y();
+    case BoxWRole: return it.box.width();
+    case BoxHRole: return it.box.height();
+    case IconXRole: return it.iconRect.x();
+    case IconYRole: return it.iconRect.y();
+    case IconPxRole: return it.iconRect.width();
+    case TextXRole: return it.textRect.x();
+    case TextYRole: return it.textRect.y();
+    case TextWRole: return it.textRect.width();
+    case TextHRole: return it.textRect.height();
+    case EditableHRole: return it.editableH;
+    case AdditionalRole: return it.additional;
+    case SpecialRole: return it.special;
     }
     return {};
 }
@@ -319,13 +375,22 @@ QHash<int, QByteArray> DesktopModel::roleNames() const
     return {{NameRole, "name"}, {FileNameRole, "fileName"}, {PathRole, "path"}, {IconRole, "icon"},
             {ThumbRole, "thumb"}, {IsDirRole, "isDir"}, {IsLauncherRole, "isLauncher"}, {XRole, "posX"},
             {YRole, "posY"}, {SelectedRole, "selected"}, {StickyRole, "sticky"}, {CutRole, "cut"},
-            {IsTrashRole, "isTrash"}, {HiddenRole, "hiddenFile"}};
+            {IsTrashRole, "isTrash"}, {HiddenRole, "hiddenFile"}, {BoxXRole, "boxX"}, {BoxYRole, "boxY"},
+            {BoxWRole, "boxW"}, {BoxHRole, "boxH"}, {IconXRole, "iconX"}, {IconYRole, "iconY"}, {IconPxRole, "iconPx"},
+            {TextXRole, "textX"}, {TextYRole, "textY"}, {TextWRole, "textW"}, {TextHRole, "textH"},
+            {EditableHRole, "editableH"}, {AdditionalRole, "additional"}, {SpecialRole, "special"}};
 }
 
 // ── Ajustes de pcmanfm-qt ────────────────────────────────────────────────────
 
 void DesktopModel::loadSettings()
 {
+#ifdef NEKOWALL_CAJA
+    if (m_flavor == Caja) {
+        cajaLoadSettings();
+        return;
+    }
+#endif
     QSettings s(m_settingsFile, QSettings::IniFormat);
     s.beginGroup(QStringLiteral("Desktop"));
     m_iconSize = std::clamp(s.value(QStringLiteral("DesktopIconSize"), 48).toInt(), 16, 256);
@@ -577,6 +642,12 @@ void DesktopModel::sortItems(QList<Item> &items) const
 
 void DesktopModel::reload()
 {
+#ifdef NEKOWALL_CAJA
+    if (m_flavor == Caja) {
+        cajaReload();
+        return;
+    }
+#endif
     QHash<QString, bool> selected, cut;
     for (const Item &it : std::as_const(m_items)) {
         if (it.selected) selected.insert(it.fileName, true);
@@ -766,7 +837,10 @@ void DesktopModel::setViewSize(int w, int h)
     if (QSize(w, h) == m_view || w <= 0 || h <= 0)
         return;
     m_view = QSize(w, h);
-    relayout();
+    if (m_flavor == Caja && m_cajaFirstLoad)
+        reload();       // primera vez: ya se sabe dónde caben los iconos
+    else
+        relayout();
 }
 
 // FolderView::updateGridSize + DesktopWindow::removeBottomGap de libfm-qt/pcmanfm-qt.
@@ -826,6 +900,12 @@ QPoint DesktopModel::cellFor(qreal x, qreal y) const
 // DesktopWindow::retrieveCustomPos + relayoutItems de pcmanfm-qt.
 void DesktopModel::relayout()
 {
+#ifdef NEKOWALL_CAJA
+    if (m_flavor == Caja) {
+        cajaRelayout(false);
+        return;
+    }
+#endif
     if (m_view.isEmpty())
         return;
     computeGrid();
@@ -914,9 +994,17 @@ int DesktopModel::rowAt(qreal x, qreal y) const
 {
     if (m_hideItems)
         return -1;
-    for (int i = 0; i < m_items.size(); ++i)
-        if (itemRect(m_items.at(i)).contains(QPoint(int(x), int(y))))
+    for (int i = int(m_items.size()) - 1; i >= 0; --i) {
+        const Item &it = m_items.at(i);
+        if (m_flavor == Caja) {
+            // Caja: solo el icono o el nombre, no el hueco del recuadro.
+            const QPoint p{int(x), int(y)};
+            if (it.iconRect.translated(it.box.topLeft()).contains(p) || it.textRect.translated(it.box.topLeft()).contains(p))
+                return i;
+        } else if (itemRect(it).contains(QPoint(int(x), int(y)))) {
             return i;
+        }
+    }
     return -1;
 }
 
@@ -999,8 +1087,9 @@ void DesktopModel::rubberBand(qreal x, qreal y, qreal w, qreal h)
     for (int i = 0; i < m_items.size(); ++i) {
         // La parte visible: el icono y su nombre (no la celda entera).
         const Item &it = m_items.at(i);
-        const QRect vis(it.pos.x() + (m_grid.width() - m_iconSize) / 2, it.pos.y() + m_margins.height(),
-                        m_iconSize, m_grid.height() - 2 * m_margins.height());
+        const QRect vis = m_flavor == Caja ? it.box
+                        : QRect(it.pos.x() + (m_grid.width() - m_iconSize) / 2, it.pos.y() + m_margins.height(),
+                                m_iconSize, m_grid.height() - 2 * m_margins.height());
         const bool sel = (i < m_rubberBase.size() && m_rubberBase.at(i)) || r.intersects(vis);
         if (sel != it.selected) {
             m_items[i].selected = sel;
@@ -1123,6 +1212,13 @@ void DesktopModel::open(int row)
     if (row < 0 || row >= m_items.size())
         return;
     const Item &it = m_items.at(row);
+    if (it.special) {
+        const bool ok = QProcess::startDetached(QStringLiteral("caja"), {QStringLiteral("--no-desktop"), it.url})
+                        || QProcess::startDetached(QStringLiteral("gio"), {QStringLiteral("open"), it.url});
+        emit message(ok ? QStringLiteral("Abriendo «%1»…").arg(it.name)
+                        : QStringLiteral("No se pudo abrir «%1»").arg(it.name));
+        return;
+    }
     if (it.launcher) {
         if (!it.url.isEmpty()) {
             QProcess::startDetached(QStringLiteral("xdg-open"), {it.url});
@@ -1134,7 +1230,7 @@ void DesktopModel::open(int row)
     }
     // Carpetas: con pcmanfm-qt, salvo «Abrir con el gestor de archivos predeterminado» (como pcmanfm-qt).
     bool ok;
-    if (it.dir && !m_defaultFm && hasProgram(QStringLiteral("pcmanfm-qt")))
+    if (it.dir && m_flavor == Pcmanfm && !m_defaultFm && hasProgram(QStringLiteral("pcmanfm-qt")))
         ok = QProcess::startDetached(QStringLiteral("pcmanfm-qt"), {it.path});
     else
         ok = QProcess::startDetached(QStringLiteral("xdg-open"), {it.path})
@@ -1289,6 +1385,8 @@ void DesktopModel::trashSelected()
     }
     int ok = 0, fail = 0;
     for (int r : selectedRows()) {
+        if (m_items.at(r).special)
+            continue;                       // Equipo, Carpeta personal, Papelera: no se borran
         if (QFile::moveToTrash(m_items.at(r).path)) {
             m_customStore.remove(m_items.at(r).fileName);
             ++ok;
@@ -1328,7 +1426,7 @@ QString DesktopModel::renameItem(int row, const QString &newNameIn)
         return {};                           // el icono desapareció mientras se renombraba
     Item &it = m_items[row];
     const QString newName = newNameIn.trimmed();
-    if (newName.isEmpty() || newName == it.name)
+    if (newName.isEmpty() || newName == it.name || it.special)
         return {};
     if (it.launcher) {
         // Lanzador: se cambia su nombre visible (Name=), como libfm-qt.
@@ -1517,6 +1615,12 @@ void DesktopModel::dropUrls(const QStringList &uris, qreal x, qreal y, bool copy
 // Arrastre dentro del escritorio: los iconos quedan fijos donde se sueltan (stickToPosition).
 void DesktopModel::moveSelection(qreal dx, qreal dy)
 {
+#ifdef NEKOWALL_CAJA
+    if (m_flavor == Caja) {
+        cajaMove(dx, dy);
+        return;
+    }
+#endif
     QList<int> rows = selectedRows();
     if (rows.isEmpty())
         return;

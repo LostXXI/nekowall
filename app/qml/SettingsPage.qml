@@ -198,13 +198,20 @@ ScrollView {
         }
         Hint { text: "La conversión crea una copia junto al original («nombre (1080p30).mp4») y la biblioteca usa la copia. El original no se toca. También puedes optimizar un vídeo que ya está en la biblioteca: clic derecho → «Optimizar para mi pantalla…»." }
 
-        SectionTitle { text: "Iconos del escritorio"; visible: Bridge.backend === "wlroots" }
+        SectionTitle { text: "Iconos del escritorio"; visible: Bridge.backend === "wlroots" || Bridge.backend === "mate" }
         CheckBox {
-            visible: Bridge.backend === "wlroots"
+            visible: Bridge.backend === "wlroots" || Bridge.backend === "mate"
             text: "Usar los iconos del escritorio de NekoWall (se ven encima del fondo animado)"
             checked: Bridge.desktopIcons
             onToggled: Bridge.setDesktopIcons(checked)
-            Component.onCompleted: if (Bridge.backend === "wlroots") Bridge.loadDesktopIcons()
+            Component.onCompleted: if (Bridge.backend === "wlroots" || Bridge.backend === "mate") Bridge.loadDesktopIcons()
+        }
+        Hint {
+            visible: Bridge.backend === "mate"
+            text: "El escritorio de Caja no puede ser transparente, así que el vídeo de fondo tapa sus iconos. Con esta "
+                  + "opción NekoWall dibuja el escritorio por su cuenta, encima del vídeo, imitando a Caja: los mismos "
+                  + "iconos, nombres, posiciones (las de Caja), ajustes, menús y teclado. Al desactivarla vuelve el "
+                  + "escritorio de Caja tal como estaba."
         }
         Hint {
             visible: Bridge.backend === "wlroots"

@@ -81,7 +81,7 @@ Para vídeo en KDE, mira [el plugin](../README.md#paso-4--solo-kde-cierra-sesió
 
 #### 2. Compilar e instalar
 
-Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
+Ver [Compilar](#compilar-todos-los-escritorios) e [Instalar el programa](#instalar-el-programa-todos-los-escritorios).
 
 #### 3. Atajo Meta+Alt+W
 
@@ -94,14 +94,17 @@ Para cambiarlo: *Ajustes del sistema → Teclado → Atajos → NekoWall*.
 
 ```bash
 sudo xbps-install -S git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel \
-    ffmpeg6 glib mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia yt-dlp
+    ffmpeg6 glib mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia yt-dlp \
+    pango-devel cairo-devel glib-devel libxcb-devel at-spi2-core-devel
 ```
+
+(Las cinco últimas son para los iconos del escritorio de NekoWall, que imitan a Caja: ver abajo.)
 
 (En neko-void usa `doas` en lugar de `sudo` si así lo elegiste al instalar.)
 
 #### 2. Compilar e instalar
 
-Ver [Compilar](#compilar-los-dos-escritorios) e [Instalar el programa](#instalar-el-programa-los-dos-escritorios).
+Ver [Compilar](#compilar-todos-los-escritorios) e [Instalar el programa](#instalar-el-programa-todos-los-escritorios).
 
 #### 3. Atajo Meta+Alt+W
 
@@ -111,11 +114,14 @@ Abre NekoWall → **Ajustes → Registrar atajo**: funciona al momento, sin cerr
 
 #### Cosas a saber en MATE
 
-- Con un **vídeo** de fondo, el vídeo **tapa los iconos del escritorio**, pero siguen ahí: el **clic derecho**
-  del escritorio y el doble clic sobre los iconos funcionan (los clics atraviesan el vídeo hasta Caja).
-  Caja no puede dibujar sus iconos con fondo transparente, así que no se pueden ver a la vez.
-- **Meta+Alt+D** (`nekowall peek`) pausa y oculta el vídeo para ver los iconos encima de un fotograma del mismo
-  vídeo; vuelve a pulsarlo para seguir.
+- Caja no puede dibujar sus iconos con fondo transparente, así que con un **vídeo** de fondo el vídeo **tapa
+  los iconos de Caja** (siguen ahí: el clic derecho y el doble clic llegan a Caja a través del vídeo).
+- **Iconos y vídeo a la vez:** *Ajustes → Iconos del escritorio → Usar los iconos del escritorio de NekoWall*
+  (o `nekowall mate-desktop-icons on --gui ~/.local/bin/nekowall-gui`). NekoWall dibuja el escritorio por su
+  cuenta, **encima** del vídeo, imitando a Caja (ver «Iconos del escritorio en MATE» más abajo). Al
+  desactivarlo vuelve el escritorio de Caja tal como estaba.
+- Sin esa opción, **Meta+Alt+D** (`nekowall peek`) pausa y oculta el vídeo para ver los iconos de Caja encima
+  de un fotograma del mismo vídeo; vuelve a pulsarlo para seguir.
 - El vídeo se pausa solo según tus ventanas y la batería (*Ajustes → Vídeo: pausa y ahorro*) y vuelve a
   arrancar al iniciar sesión.
 - Sin compositor con desenfoque, el selector usa un fondo oscuro en lugar de cristal.
@@ -323,6 +329,7 @@ nekowall thumbs [--force]            Genera las miniaturas que falten
 nekowall optimize <id|ruta> [--height 1080] [--fps 30] [--replace-in-library]
 nekowall video-settings [--pause-mode 0-3] [--battery on|off] [--battery-level N]
 nekowall relocate <carpeta-vieja> <carpeta-nueva>   Tras mover una carpeta de fondos
+nekowall mate-desktop-icons on|off|status --gui RUTA   MATE: iconos de NekoWall (imitan a Caja) encima del vídeo
 nekowall help
 ```
 
@@ -394,6 +401,46 @@ KF6WindowSystem), paneles de cristal con brillo, acento turquesa (#39C5BB), halo
 tarjeta activa. La ilustración opcional la elige el usuario en Ajustes; se copia a
 `~/.local/share/nekowall/mascota.*` y se «hornea» una vez (recortada y fundida) en
 `~/.cache/nekowall/hud-art-*.png`, de modo que el selector dibuja una sola imagen sin efectos.
+
+### Iconos del escritorio en MATE (imitación de Caja)
+
+`nekowall-gui --desktop` en X11 abre una ventana transparente (Marco compone) que imita el escritorio de
+Caja 1.28. El código está en `app/src/CajaLayout.*` (colocación, traducida de `caja-icon-container.c` y
+`caja-icon-canvas-item.c`), `app/src/CajaScan.*` (qué iconos hay, en qué orden y dónde) y
+`app/src/DesktopModelCaja.cpp` (el modelo); la ventana es `app/qml/DesktopIconsX11.qml` y el contenido,
+compartido con la de Wayland (pcmanfm-qt), `app/qml/DesktopIconsContent.qml`.
+
+- **Lo mismo que lee Caja:** GSettings `org.mate.caja.desktop` (letra, límite de líneas, iconos de Equipo,
+  Carpeta personal, Papelera y Red), `org.mate.caja.icon-view` (zoom, pies de icono), `org.mate.caja.preferences`
+  (clic simple, ocultos, confirmar papelera, miniaturas, «texto en los iconos»), `org.mate.interface` (tema de
+  iconos y letra del sistema) y `org.mate.font-rendering`; el DPI exacto de XSETTINGS (`Xft/DPI`, p. ej.
+  96,246, no 96); los nombres de los iconos especiales traducidos por Caja (gettext, dominio `caja`) y los
+  textos de sus menús.
+- **Posiciones:** las de Caja, en sus metadatos (`metadata::caja-icon-position` de GVfs y
+  `~/.config/caja/desktop-metadata` para los especiales), y se guardan ahí al moverlos: se puede cambiar
+  entre Caja y NekoWall sin perder nada. Se respetan «Mantener alineado» (rejilla 78×20 de Caja al soltar)
+  y «Bloquear la posición de los iconos».
+- **Colocación de los iconos sin posición**, comprobada contra Caja por accesibilidad (AT-SPI): Caja coloca
+  como un contenedor genérico (letra del sistema, límite de líneas de las vistas, zoom estándar), ordenando
+  por nombre con las carpetas primero (`g_utf8_collate_key_for_filename`), y busca el primer hueco libre
+  columna a columna; después aplica la letra, el límite y el zoom del escritorio sin recolocar (con otro
+  zoom recorta cada icono a la pantalla). Los nombres se miden y se **dibujan con Pango** igual que Caja
+  (espacios de ancho cero tras `_ - .`, cortes por palabra y letra, «…»), con su sombra
+  (`text-shadow: 1px 1px` negro al 80 %).
+- **Al activarlo** se leen por AT-SPI las posiciones que tiene Caja en pantalla y se guardan (Caja no
+  siempre guarda las de los iconos que coloca él solo), y se apaga su escritorio
+  (`org.mate.background show-desktop-icons false`); al desactivarlo se restaura el valor anterior.
+- **Capas de X11:** la ventana es de tipo escritorio (`_NET_WM_WINDOW_TYPE_DESKTOP`) y con los iconos de
+  NekoWall el vídeo (xwinwrap) también (`-fdt`): Marco deja las dos en su capa más baja y «Mostrar
+  escritorio» no las oculta. Los iconos se mantienen encima del vídeo reaccionando a cada cambio de
+  `_NET_CLIENT_LIST_STACKING`. Sin los iconos de NekoWall el vídeo vuelve a ser una ventana normal «debajo»
+  (para que un clic en Caja no la tape).
+- Verificado en la VM neko-mate: nombres con distintas letras, límites de líneas y zooms (72 y 96: 21/21;
+  32: 20/21, un caso límite de Pango), posiciones guardadas también fuera de pantalla o solapadas (21/21),
+  capturas píxel a píxel (iconos idénticos y nombres en la misma posición), arrastre con «Mantener
+  alineado» y vuelta a Caja con la misma posición, recuadro de selección, menús, «Mostrar escritorio»,
+  1280×800 y 1920×1080, y arranque tras reiniciar. La única diferencia visible es el suavizado de color de
+  las letras: Caja las dibuja sobre su propio fondo opaco y NekoWall sobre una ventana transparente.
 
 ### Pruebas en MATE
 Máquina virtual QEMU/KVM con la ISO de neko-void MATE (X11, Caja + Marco + mate-panel): aplicar imágenes

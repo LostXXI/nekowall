@@ -20,6 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+pub mod icons;
 pub mod video;
 
 const SCHEMA: &str = "org.mate.background";

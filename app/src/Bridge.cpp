@@ -811,7 +811,9 @@ void Bridge::registerNiriShortcut()
 
 void Bridge::loadDesktopIcons()
 {
-    run({QStringLiteral("wlr-desktop-icons"), QStringLiteral("status")}, [this](int code, const QByteArray &out, const QByteArray &) {
+    const QString cmd = m_backend == QStringLiteral("mate") ? QStringLiteral("mate-desktop-icons")
+                                                            : QStringLiteral("wlr-desktop-icons");
+    run({cmd, QStringLiteral("status")}, [this](int code, const QByteArray &out, const QByteArray &) {
         const bool on = code == 0 && out.trimmed() == "on";
         if (on != m_desktopIcons) {
             m_desktopIcons = on;
@@ -822,7 +824,9 @@ void Bridge::loadDesktopIcons()
 
 void Bridge::setDesktopIcons(bool on)
 {
-    run({QStringLiteral("wlr-desktop-icons"), on ? QStringLiteral("on") : QStringLiteral("off"),
+    const QString cmd = m_backend == QStringLiteral("mate") ? QStringLiteral("mate-desktop-icons")
+                                                            : QStringLiteral("wlr-desktop-icons");
+    run({cmd, on ? QStringLiteral("on") : QStringLiteral("off"),
          QStringLiteral("--gui"), QCoreApplication::applicationFilePath()},
         [this](int code, const QByteArray &out, const QByteArray &err) {
             if (code != 0)

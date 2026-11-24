@@ -22,7 +22,9 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # ── Paquetes ────────────────────────────────────────────────────────────────
 COMUNES="git rust cargo gcc cmake make qt6-base-devel qt6-declarative-devel qt6-svg xdg-utils ffmpeg6 glib yt-dlp"
 KDE="kf6-kwindowsystem-devel qt6-wayland layer-shell-qt kf6-qqc2-desktop-style qt6-multimedia libkf6screen"
-MATE="mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia"
+# Los iconos de NekoWall en MATE (imitan a Caja) miden y dibujan los nombres con Pango, leen los ajustes con
+# GIO, el DPI de XSETTINGS con xcb y las posiciones que tiene Caja con AT-SPI: se compilan con sus cabeceras.
+MATE="mpv xwinwrap xprop xdotool xrandr wmctrl qt6-multimedia pango-devel cairo-devel glib-devel libxcb-devel at-spi2-core-devel"
 NIRI="mpvpaper awww layer-shell-qt qt6-wayland qt6-multimedia"
 WLR="mpvpaper swaybg wlr-randr lswt layer-shell-qt qt6-wayland qt6-multimedia"
 # Arch / Artix (pacman). mpvpaper y lswt están en AUR: se instalan con yay o paru si los hay.

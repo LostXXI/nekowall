@@ -84,7 +84,7 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 | ← → / ↑ ↓ | En el selector: moverse entre vídeos / imágenes |
 | **Enter** · **Esc** | En el selector: aplicar · cerrar |
 | **P** | En el selector, con varias pantallas: elegir en cuál se aplica (o en todas) |
-| **Meta+Alt+D** | Solo MATE con vídeo de fondo: ver los iconos del escritorio (otra vez para volver) |
+| **Meta+Alt+D** | Solo MATE con vídeo de fondo y los iconos de Caja: verlos (otra vez para volver) |
 
 ## Si algo no funciona
 
@@ -92,7 +92,7 @@ clic derecho en el escritorio → **Configurar el escritorio y el fondo de panta
 | --- | --- |
 | Meta+Alt+W no hace nada en KDE | Cierra sesión y vuelve a entrar una vez |
 | En KDE los vídeos no se aplican | Falta el plugin de vídeo (paso 4) |
-| En MATE no veo los iconos con un vídeo de fondo | Es normal: pulsa **Meta+Alt+D** |
+| En MATE no veo los iconos con un vídeo de fondo | Activa *Ajustes → Iconos del escritorio → Usar los iconos del escritorio de NekoWall*: se ven encima del vídeo, igual que los de Caja (o pulsa **Meta+Alt+D** para verlos un momento) |
 | `nekowall: command not found` | Añade `export PATH="$HOME/.local/bin:$PATH"` a tu `~/.bashrc` (el menú y los atajos funcionan igual) |
 
 ¿Otra cosa? Abre un [*issue*](https://github.com/LostXXI/nekowall/issues) y pega lo que sale al ejecutar

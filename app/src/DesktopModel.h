@@ -16,6 +16,7 @@
 #include <QFileSystemWatcher>
 #include <QFont>
 #include <QHash>
+#include <QImage>
 #include <QPoint>
 #include <QQuickImageProvider>
 #include <QRect>
@@ -23,6 +24,11 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <memory>
+
+#ifdef NEKOWALL_CAJA
+#include "CajaScan.h"
+#endif
 
 // «image://icono/<nombre>»: icono del tema del sistema (QIcon::fromTheme), con alternativas.
 class ThemeIconProvider : public QQuickImageProvider
@@ -30,6 +36,17 @@ class ThemeIconProvider : public QQuickImageProvider
 public:
     ThemeIconProvider() : QQuickImageProvider(QQuickImageProvider::Pixmap) {}
     QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requested) override;
+};
+
+// «image://etiqueta/<fila>/<seleccionado>/…»: el nombre de un icono dibujado con Pango (modo Caja).
+class DesktopModel;
+class CajaLabelProvider : public QQuickImageProvider
+{
+public:
+    explicit CajaLabelProvider(DesktopModel *m) : QQuickImageProvider(QQuickImageProvider::Image), m_model(m) {}
+    QImage requestImage(const QString &id, QSize *size, const QSize &requested) override;
+private:
+    DesktopModel *m_model;
 };
 
 class DesktopModel : public QAbstractListModel
@@ -65,14 +82,22 @@ class DesktopModel : public QAbstractListModel
     Q_PROPERTY(QStringList shortcuts READ shortcuts NOTIFY settingsChanged)
     Q_PROPERTY(QVariantMap prefs READ prefs NOTIFY settingsChanged)
     Q_PROPERTY(QString settingsFile READ settingsFile CONSTANT)
+    // «pcmanfm» (Wayland, imita a pcmanfm-qt) o «caja» (MATE, imita al escritorio de Caja)
+    Q_PROPERTY(QString flavor READ flavor CONSTANT)
+    Q_PROPERTY(bool keepAligned READ keepAligned NOTIFY settingsChanged)
+    Q_PROPERTY(bool lockPositions READ lockPositions NOTIFY settingsChanged)
 
 public:
     enum Roles {
         NameRole = Qt::UserRole + 1, FileNameRole, PathRole, IconRole, ThumbRole, IsDirRole, IsLauncherRole,
-        XRole, YRole, SelectedRole, StickyRole, CutRole, IsTrashRole, HiddenRole
+        XRole, YRole, SelectedRole, StickyRole, CutRole, IsTrashRole, HiddenRole,
+        // Geometría por icono (modo Caja: cada icono tiene su propio alto y ancho de nombre)
+        BoxXRole, BoxYRole, BoxWRole, BoxHRole, IconXRole, IconYRole, IconPxRole,
+        TextXRole, TextYRole, TextWRole, TextHRole, EditableHRole, AdditionalRole, SpecialRole
     };
+    enum Flavor { Pcmanfm, Caja };
     // Un modelo por pantalla, como pcmanfm-qt 2.5 en Wayland (posiciones en desktop-items-<pantalla>.conf).
-    explicit DesktopModel(const QString &screenName = {}, QObject *parent = nullptr);
+    explicit DesktopModel(const QString &screenName = {}, QObject *parent = nullptr, Flavor flavor = Pcmanfm);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -105,6 +130,19 @@ public:
     QStringList shortcuts() const { return m_shortcuts; }
     QVariantMap prefs() const;
     QString settingsFile() const { return m_settingsFile; }
+    QString flavor() const { return m_flavor == Caja ? QStringLiteral("caja") : QStringLiteral("pcmanfm"); }
+    bool keepAligned() const { return m_keepAligned; }
+    bool lockPositions() const { return m_lockPositions; }
+    // Texto de un menú traducido como en Caja (su dominio de traducción), o el mismo texto.
+    Q_INVOKABLE QString cajaText(const QString &msgid, const QString &domain = QStringLiteral("caja")) const;
+    // Modo Caja: «Organizar el escritorio por nombre», «Mantener alineado».
+    Q_INVOKABLE void organizeByName();
+    Q_INVOKABLE void setKeepAligned(bool on);
+    // Modo Caja: guardar en los metadatos de Caja dónde tiene Caja ahora cada icono (antes de reemplazarlo).
+    Q_INVOKABLE int captureCajaPositions();
+    void setSaveNewPositions(bool on) { m_saveNew = on; }   // falso solo para --capture-caja
+    // Modo Caja: el nombre dibujado con Pango (lo pide el proveedor de imágenes «image://etiqueta/…»).
+    QImage cajaLabelImage(int row, bool selected) const;
 
     // Tamaño de la capa (lo da QML).
     Q_INVOKABLE void setViewSize(int w, int h);
@@ -161,6 +199,9 @@ public:
     Q_INVOKABLE void savePrefs(const QVariantMap &p);
     Q_INVOKABLE QStringList fontFamilies() const;
 
+public slots:
+    void cajaSettingsChanged();          // GSettings de MATE cambió (modo Caja)
+
 signals:
     void countChanged();
     void selectionChanged();
@@ -175,6 +216,15 @@ private:
         qint64 size = 0;
         qint64 mtime = 0;
         QPoint pos;
+        // Modo Caja
+        bool special = false, placed = false;
+        double cx = 0, cy = 0;                     // posición en el lienzo de Caja (como icon->x/y)
+        QString additional;                        // pies de icono
+#ifdef NEKOWALL_CAJA
+        CajaIconGeom geom;                         // medidas del nombre (para dibujarlo)
+#endif
+        QRect box, iconRect, textRect;             // en píxeles: recuadro (ventana) e icono/nombre (relativos al recuadro)
+        int editableH = 0;
     };
     void reload();
     void loadSettings();
@@ -194,6 +244,13 @@ private:
     void transfer(const QStringList &sources, const QString &destDir, bool move, const QPoint &dropAt);
     QString freeName(const QString &dir, const QString &name) const;
     static Item readLauncher(const QString &path);
+    // Modo Caja (DesktopModelCaja.cpp)
+    void cajaLoadSettings();
+    void cajaReload();
+    void cajaRelayout(bool firstLoad);
+    void cajaMove(qreal dx, qreal dy);
+    void cajaSavePosition(const Item &it);
+    QRect cajaHitRect(const Item &it) const;
 
     QString m_screenName;
     QString m_folder, m_profileDir, m_settingsFile, m_positionsFile;
@@ -222,4 +279,14 @@ private:
     bool m_backupAsHidden = false, m_defaultFm = false;
     QString m_sortColumn = QStringLiteral("name");
     QStringList m_shortcuts;
+
+    Flavor m_flavor = Pcmanfm;
+    bool m_saveNew = true;
+    bool m_keepAligned = true, m_lockPositions = false, m_cajaFirstLoad = true;
+#ifdef NEKOWALL_CAJA
+    CajaSettings m_caja;
+    std::unique_ptr<CajaLayout> m_place, m_show;   // colocar (como Caja al arrancar) y mostrar (ajustes del escritorio)
+    QPoint m_origin;                               // márgenes del área de trabajo (paneles)
+    double m_ppu = 1.0;
+#endif
 };

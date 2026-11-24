@@ -31,6 +31,7 @@ qt_add_executable(nekowall-gui
     src/Workshop.h
     src/DesktopModel.cpp
     src/DesktopModel.h
+    src/DesktopModelCaja.cpp
 )
 
 qt_add_qml_module(nekowall-gui
@@ -52,6 +53,8 @@ qt_add_qml_module(nekowall-gui
         qml/LinkDialog.qml
         qml/LinkPreview.qml
         qml/DesktopIcons.qml
+        qml/DesktopIconsContent.qml
+        qml/DesktopIconsX11.qml
 )
 
 # En desarrollo, la GUI busca la CLI en ../target/release/nekowall si no está junto al ejecutable.
@@ -63,6 +66,23 @@ find_package(KF6WindowSystem QUIET)
 if(KF6WindowSystem_FOUND)
     target_link_libraries(nekowall-gui PRIVATE KF6::WindowSystem)
     target_compile_definitions(nekowall-gui PRIVATE HAVE_KWINDOWEFFECTS)
+endif()
+
+# Iconos del escritorio imitando a Caja (MATE): Pango y GIO, como Caja. Opcional: sin ellos no hay modo Caja.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(CAJADEPS QUIET IMPORTED_TARGET pango pangocairo cairo gio-2.0 xcb)
+endif()
+if(CAJADEPS_FOUND)
+    target_sources(nekowall-gui PRIVATE src/CajaLayout.cpp src/CajaLayout.h src/CajaScan.cpp src/CajaScan.h)
+    pkg_check_modules(ATSPI QUIET IMPORTED_TARGET atspi-2)
+    if(ATSPI_FOUND)
+        target_compile_definitions(nekowall-gui PRIVATE NEKOWALL_ATSPI)
+        target_link_libraries(nekowall-gui PRIVATE PkgConfig::ATSPI)
+    endif()
+    target_compile_definitions(nekowall-gui PRIVATE NEKOWALL_CAJA)
+    target_link_libraries(nekowall-gui PRIVATE PkgConfig::CAJADEPS)
+    message(STATUS "NekoWall: modo Caja (MATE) activado")
 endif()
 
 target_link_libraries(nekowall-gui PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Network)

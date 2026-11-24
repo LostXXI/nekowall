@@ -150,11 +150,11 @@ fn read_state() -> Vec<(String, String)> {
     read_state_in(&config_dir())
 }
 
-fn get_state(key: &str) -> Option<String> {
+pub(crate) fn get_state(key: &str) -> Option<String> {
     read_state().into_iter().find(|(k, _)| k == key).map(|(_, v)| v)
 }
 
-fn set_state(key: &str, value: Option<&str>) -> std::io::Result<()> {
+pub(crate) fn set_state(key: &str, value: Option<&str>) -> std::io::Result<()> {
     let mut st: Vec<_> = read_state().into_iter().filter(|(k, _)| k != key).collect();
     if let Some(v) = value {
         st.push((key.to_string(), v.to_string()));
@@ -619,7 +619,11 @@ impl Player {
             // Sin -fdt: la ventana del vídeo NO es de tipo «escritorio» sino una ventana normal en la capa
             // «debajo» (-b), que Marco pone siempre por encima del escritorio. Antes, al ser las dos de tipo
             // escritorio, un clic en el escritorio subía Caja y sus iconos se veían un instante.
-            .args(["-ni", "-b", "-un", "-s", "-st", "-sp", "-nf", "--"])
+            .args(["-ni", "-b", "-un", "-s", "-st", "-sp", "-nf"])
+            // Con los iconos de NekoWall (sin escritorio de Caja) sí es de tipo escritorio: la ventana de los
+            // iconos también lo es y va justo encima; así «Mostrar escritorio» de Marco no oculta ninguna.
+            .args(crate::icons::desktop_icons_enabled().then_some("-fdt"))
+            .arg("--")
             // --no-config y --load-scripts=no: el fondo ignora la configuración personal de mpv del
             // usuario. Sin esto, un script de controles (ModernZ, uosc…) instalado en ~/.config/mpv/scripts
             // dibujaba su barra de reproducción encima del fondo (visto en el equipo de un amigo de Lost).
@@ -830,8 +834,10 @@ pub fn run_daemon(legacy: Option<&Path>) -> Result<(), String> {
         // Espera hasta 200 ms, o menos si cambió el orden de las ventanas.
         if rx.recv_timeout(Duration::from_millis(200)).is_ok() {
             while rx.try_recv().is_ok() {}
-            if !peeking {
+            if !peeking && !crate::icons::desktop_icons_enabled() {
                 // Subir los vídeos YA (sin comprobar antes): si ya estaban arriba no cambia nada.
+                // (Con los iconos de NekoWall no: su ventana va encima del vídeo y se sube sola; subir el
+                // vídeo cada vez que cambia el orden haría que se turnaran sin fin.)
                 for id in &own {
                     xdotool(&["windowraise", id]);
                 }
